@@ -29,7 +29,14 @@ def parse_args():
     p.add_argument("--rest-baseline", type=int, default=18)
     p.add_argument("--max-contraction", type=int, default=1321)
     p.add_argument("--model", default="final_model.npz")
-    p.add_argument("--interval", type=float, default=0.05, help="루프 주기(초), 기본 50ms")
+    p.add_argument("--interval", type=float, default=0.05, help="제어 루프 주기(초), 기본 50ms")
+    p.add_argument(
+        "--print-interval",
+        type=float,
+        default=0.2,
+        help="화면 상태 출력 주기(초), 기본 200ms. 제어 반응 속도(--interval)와는 별개 — "
+        "값을 줄이면 더 자주 찍히지만 화면이 정신없어짐.",
+    )
     p.add_argument(
         "--hand-port",
         default=None,
@@ -61,21 +68,27 @@ def main():
     reader.start()
     print(f"[main] 시리얼 연결됨: {args.port} @ {args.baud}bps. Ctrl+C로 종료.")
 
+    last_print = 0.0
     try:
         while True:
             command = map_to_robot_command(reader.current_state)
-            robot.apply(command)
+            robot.apply(command)  # 명령이 실제로 바뀔 때만 [RobotArm] -> ... 한 줄 찍힘
 
-            window = reader.try_get_window()
-            ml_state, ml_proba = ("(대기중)", 0.0)
-            if window is not None:
-                ml_state, ml_proba = classifier.classify(window)
+            now = time.monotonic()
+            if now - last_print >= args.print_interval:
+                last_print = now
+                window = reader.try_get_window()
+                ml_state, ml_proba = ("(대기중)", 0.0)
+                if window is not None:
+                    ml_state, ml_proba = classifier.classify(window)
 
-            print(
-                f"raw={reader.current_value:5d} norm={reader.current_normalized:.2f} "
-                f"threshold={reader.current_state:7s} ml={ml_state:9s}(p={ml_proba:.2f}) "
-                f"command={command.value}"
-            )
+                # 같은 줄을 덮어써서 화면이 안 정신없게 (제어는 --interval대로 그대로 빠르게 돔)
+                line = (
+                    f"raw={reader.current_value:5d} norm={reader.current_normalized:.2f} "
+                    f"threshold={reader.current_state:7s} ml={ml_state:9s}(p={ml_proba:.2f}) "
+                    f"command={command.value:9s}"
+                )
+                print("\r" + line.ljust(80), end="", flush=True)
 
             time.sleep(args.interval)
     except KeyboardInterrupt:
