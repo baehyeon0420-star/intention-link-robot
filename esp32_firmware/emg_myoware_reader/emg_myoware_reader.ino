@@ -5,9 +5,11 @@
   기대하는 형식으로 출력한다: "t_ms,raw\n"
 
   배선 (MyoWare 2.0 -> ESP32 DevKitC V4):
-    +  (VCC) -> 3.3V
-    -  (GND) -> GND
-    SIG      -> GPIO34 (ADC1, 입력 전용 핀. WiFi 쓸 때도 ADC2와 안 겹쳐서 안전)
+    VIN -> 3.3V  (5V 아님! ENV 출력 범위가 0~VIN이라, VIN=5V면 ENV가 최대 5V까지
+                  나올 수 있어서 ESP32 ADC(0~3.3V 허용)가 손상될 수 있음)
+    GND -> GND
+    ENV -> GPIO34 (ADC1, 입력 전용 핀. WiFi 쓸 때도 ADC2와 안 겹쳐서 안전)
+    (RAW/REF 핀은 이 스케치에서는 사용 안 함)
 
   전극(패드) 부착:
     +/- 전극 2개 : 전완근(손 쥘 때 쓰는 아래팔 안쪽 근육) 위에 근육 결 방향으로 나란히
