@@ -24,12 +24,18 @@ from emg_pipeline.serial_reader import EMGSerialReader
 
 def parse_args():
     p = argparse.ArgumentParser(description="intention-link 실시간 EMG 제어 (Unity 미사용)")
-    p.add_argument("--port", required=True, help="ESP32 시리얼 포트, 예: /dev/cu.usbserial-1110")
+    p.add_argument("--port", required=True, help="ESP32(EMG) 시리얼 포트, 예: /dev/cu.usbserial-1110")
     p.add_argument("--baud", type=int, default=115200)
     p.add_argument("--rest-baseline", type=int, default=18)
     p.add_argument("--max-contraction", type=int, default=1321)
     p.add_argument("--model", default="final_model.npz")
     p.add_argument("--interval", type=float, default=0.05, help="루프 주기(초), 기본 50ms")
+    p.add_argument(
+        "--hand-port",
+        default=None,
+        help="AmazingHand용 USB-TTL 포트 (예: /dev/cu.usbmodem5B790178941). "
+        "ESP32 포트와는 다른 별도 USB 장치. 안 주면 콘솔 출력만 하고 실제 손은 안 움직임.",
+    )
     return p.parse_args()
 
 
@@ -43,7 +49,14 @@ def main():
         max_contraction=args.max_contraction,
     )
     classifier = EMGMLClassifier(model_path=args.model)
-    robot = RobotArmController()
+
+    hand_driver = None
+    if args.hand_port:
+        from emg_pipeline.amazinghand_driver import AmazingHandDriver
+
+        hand_driver = AmazingHandDriver(port=args.hand_port)
+        print(f"[main] AmazingHand 연결됨: {args.hand_port}")
+    robot = RobotArmController(hand_driver=hand_driver)
 
     reader.start()
     print(f"[main] 시리얼 연결됨: {args.port} @ {args.baud}bps. Ctrl+C로 종료.")
@@ -69,6 +82,7 @@ def main():
         print("\n[main] 종료합니다.")
     finally:
         reader.stop()
+        robot.shutdown()
 
 
 if __name__ == "__main__":

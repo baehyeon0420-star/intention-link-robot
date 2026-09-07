@@ -1,2 +1,3 @@
 pyserial>=3.5
 numpy>=1.24
+rustypot>=1.7.0  # AmazingHand(Feetech SCS0009) 제어용, --hand-port 쓸 때 필요
