@@ -53,13 +53,19 @@ class EMGSerialReader:
         self._thread = None
 
     def start(self, retries=5, retry_delay=0.5):
-        # macOS는 USB-시리얼 장치가 막 연결/재연결된 직후에 포트를 열면
-        # termios.error: (22, 'Invalid argument')를 던지는 경우가 있음.
-        # 잠깐 있다가 다시 열면 되는 일시적 문제라 재시도한다.
+        # macOS + 일부 USB-CDC 시리얼 칩(ESP32 내장 USB 등) 조합에서, pyserial
+        # 생성자에 port/baudrate를 한 번에 넘기면 termios.error: (22, 'Invalid
+        # argument')가 나는 경우가 있음. 속성을 따로 설정하고 나중에 여는 방식이
+        # 이 문제를 우회하는 경우가 많아서 이렇게 열고, 그래도 실패하면 재시도한다.
         last_err = None
         for attempt in range(1, retries + 1):
             try:
-                self._port = serial.Serial(self.port_name, self.baud_rate, timeout=0.1)
+                port = serial.Serial()
+                port.port = self.port_name
+                port.baudrate = self.baud_rate
+                port.timeout = 0.1
+                port.open()
+                self._port = port
                 break
             except Exception as e:
                 last_err = e
