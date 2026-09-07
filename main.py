@@ -64,6 +64,13 @@ def main():
     )
     classifier = EMGMLClassifier(model_path=args.model)
 
+    # ESP32(EMG) 포트를 먼저 열고 잠깐 대기한 뒤 AmazingHand 포트를 연다.
+    # macOS에서 USB-시리얼 포트 2개를 거의 동시에 열면 termios.error가
+    # 나는 경우가 있어서, 순서를 두고 안정화 시간을 준다.
+    reader.start()
+    print(f"[main] 시리얼 연결됨: {args.port} @ {args.baud}bps. Ctrl+C로 종료.")
+    time.sleep(0.5)
+
     hand_driver = None
     if args.hand_port:
         from emg_pipeline.amazinghand_driver import AmazingHandDriver
@@ -71,9 +78,6 @@ def main():
         hand_driver = AmazingHandDriver(port=args.hand_port)
         print(f"[main] AmazingHand 연결됨: {args.hand_port}")
     robot = RobotArmController(hand_driver=hand_driver)
-
-    reader.start()
-    print(f"[main] 시리얼 연결됨: {args.port} @ {args.baud}bps. Ctrl+C로 종료.")
 
     last_print = 0.0
     try:
