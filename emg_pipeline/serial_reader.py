@@ -52,8 +52,22 @@ class EMGSerialReader:
         self._port = None
         self._thread = None
 
-    def start(self):
-        self._port = serial.Serial(self.port_name, self.baud_rate, timeout=0.1)
+    def start(self, retries=5, retry_delay=0.5):
+        # macOS는 USB-시리얼 장치가 막 연결/재연결된 직후에 포트를 열면
+        # termios.error: (22, 'Invalid argument')를 던지는 경우가 있음.
+        # 잠깐 있다가 다시 열면 되는 일시적 문제라 재시도한다.
+        last_err = None
+        for attempt in range(1, retries + 1):
+            try:
+                self._port = serial.Serial(self.port_name, self.baud_rate, timeout=0.1)
+                break
+            except Exception as e:
+                last_err = e
+                if attempt < retries:
+                    time.sleep(retry_delay)
+        else:
+            raise last_err
+
         self._running = True
         self._thread = threading.Thread(target=self._read_loop, daemon=True)
         self._thread.start()
