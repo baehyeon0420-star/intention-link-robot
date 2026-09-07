@@ -44,11 +44,12 @@ USB-TTL 시리얼 버스 드라이버로 연결 (ESP32와는 **별도의 USB 포
 ```bash
 pip install -r requirements.txt
 
-# EMG만 (로봇 손 없이 콘솔 출력만 확인)
-python main.py --port /dev/cu.usbserial-XXXX
+# 매번 전극 접촉 상태가 달라지므로 --calibrate로 자동 보정 추천
+# (시작하면 "힘 빼기" -> "최대한 세게 쥐기" 순서로 안내가 뜸)
+python main.py --port /dev/cu.usbserial-XXXX --calibrate
 
 # EMG + AmazingHand 실제 구동
-python main.py --port /dev/cu.usbserial-XXXX --hand-port /dev/cu.usbmodemXXXX
+python main.py --port /dev/cu.usbserial-XXXX --calibrate --hand-port /dev/cu.usbmodemXXXX
 ```
 
 주요 옵션 (기본값은 `EMGSerialReader.cs`의 기본값과 동일):
@@ -57,8 +58,10 @@ python main.py --port /dev/cu.usbserial-XXXX --hand-port /dev/cu.usbmodemXXXX
 |---|---|---|
 | `--port` | (필수) | ESP32(EMG) 시리얼 포트 |
 | `--baud` | 115200 | ESP32 `Serial.begin()`과 동일하게 |
-| `--rest-baseline` | 18 | 힘 뺀 상태(rest) raw 평균값 — 사람마다 재보정 필요 |
-| `--max-contraction` | 1321 | 최대 수축(grip) raw 평균값 — 사람마다 재보정 필요 |
+| `--rest-baseline` | 18 | 힘 뺀 상태(rest) raw 평균값. `--calibrate` 쓰면 무시되고 자동 측정됨 |
+| `--max-contraction` | 1321 | 최대 수축(grip) raw 평균값. `--calibrate` 쓰면 무시되고 자동 측정됨 |
+| `--calibrate` | 꺼짐 | 시작할 때 REST 3초 + 최대수축 3초 측정해서 위 두 값을 자동으로 잡음. 전극 상태가 매번 달라지므로 추천 |
+| `--calibrate-seconds` | 3.0 | 캘리브레이션 각 단계 측정 시간(초) |
 | `--model` | `final_model.npz` | 학습된 모델 파일 경로 |
 | `--interval` | 0.05 | 메인 루프 주기(초) |
 | `--hand-port` | (없음) | AmazingHand용 USB-TTL 포트. 안 주면 콘솔 출력만 하고 손은 안 움직임 |
@@ -68,7 +71,6 @@ python main.py --port /dev/cu.usbserial-XXXX --hand-port /dev/cu.usbmodemXXXX
 - **HOLD 동작 다듬기**: 지금은 Release/GripClose 각도의 단순 중간값(`amazinghand_driver.py`의 `HOLD_DEG`). 실제로 써보고 조정 필요
 - **XR 상호작용**: `ContractionPatternDetector`(Short/Long/Double)는 이식만 해두고 실제로 연결한 곳은 없음. Unity의 XR 상호작용 기능은 이 프로젝트 범위 밖
 - **무선화**: 지금은 여전히 유선 시리얼. 최종 목표(전완근 착용형 무선 유닛)를 위해서는 ESP32 → BLE/ESP-NOW 무선 전송으로 교체 필요 (그러면 이 파이썬 스크립트가 받는 지점도 시리얼 대신 BLE 수신으로 바뀌어야 함)
-- **`rest-baseline`/`max-contraction` 자동 보정**: 지금은 수동으로 값을 넣어야 함
 
 ## 관련 프로젝트
 

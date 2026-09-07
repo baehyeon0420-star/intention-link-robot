@@ -29,6 +29,14 @@ def parse_args():
     p.add_argument("--rest-baseline", type=int, default=18)
     p.add_argument("--max-contraction", type=int, default=1321)
     p.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="시작할 때 REST/최대수축을 몇 초씩 측정해서 rest-baseline/max-contraction을 "
+        "자동으로 잡음 (지정하면 --rest-baseline/--max-contraction 값은 무시됨). "
+        "전극 상태가 매번 달라지니 세션마다 쓰는 걸 추천.",
+    )
+    p.add_argument("--calibrate-seconds", type=float, default=3.0, help="캘리브레이션 각 단계 측정 시간(초)")
+    p.add_argument(
         "--smoothing",
         type=float,
         default=0.15,
@@ -70,6 +78,13 @@ def main():
     reader.start()
     print(f"[main] 시리얼 연결됨: {args.port} @ {args.baud}bps. Ctrl+C로 종료.")
     time.sleep(0.5)
+
+    if args.calibrate:
+        from emg_pipeline.calibration import auto_calibrate
+
+        rest_baseline, max_contraction = auto_calibrate(reader, seconds=args.calibrate_seconds)
+        reader.rest_baseline = rest_baseline
+        reader.max_contraction = max_contraction
 
     hand_driver = None
     if args.hand_port:
