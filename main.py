@@ -28,6 +28,12 @@ def parse_args():
     p.add_argument("--baud", type=int, default=115200)
     p.add_argument("--rest-baseline", type=int, default=18)
     p.add_argument("--max-contraction", type=int, default=1321)
+    p.add_argument(
+        "--smoothing",
+        type=float,
+        default=0.15,
+        help="EMG 신호 이동평균 강도(0~1). 작을수록 더 부드럽지만 반응이 느려짐. 기본 0.15",
+    )
     p.add_argument("--model", default="final_model.npz")
     p.add_argument("--interval", type=float, default=0.05, help="제어 루프 주기(초), 기본 50ms")
     p.add_argument(
@@ -54,6 +60,7 @@ def main():
         baud_rate=args.baud,
         rest_baseline=args.rest_baseline,
         max_contraction=args.max_contraction,
+        smoothing_alpha=args.smoothing,
     )
     classifier = EMGMLClassifier(model_path=args.model)
 

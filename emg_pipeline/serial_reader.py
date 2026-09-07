@@ -28,6 +28,7 @@ class EMGSerialReader:
         threshold_light=0.1,
         threshold_strong=0.4,
         threshold_grip=0.7,
+        smoothing_alpha=0.15,
     ):
         self.port_name = port
         self.baud_rate = baud_rate
@@ -36,10 +37,14 @@ class EMGSerialReader:
         self.threshold_light = threshold_light
         self.threshold_strong = threshold_strong
         self.threshold_grip = threshold_grip
+        # raw 신호는 순간순간 노이즈가 커서, 지수이동평균(EMA)으로 부드럽게 만든 뒤
+        # 그 값으로 threshold 상태를 판단한다 (0~1, 작을수록 더 부드러움/느림).
+        self.smoothing_alpha = smoothing_alpha
 
         self.current_value = 0
         self.current_normalized = 0.0
         self.current_state = "REST"
+        self._smoothed_value = None
 
         self._window = deque(maxlen=self.WINDOW_SIZE)
         self._lock = threading.Lock()
@@ -79,14 +84,20 @@ class EMGSerialReader:
         except ValueError:
             return
 
-        normalized = self._normalize(value)
+        if self._smoothed_value is None:
+            self._smoothed_value = float(value)
+        else:
+            a = self.smoothing_alpha
+            self._smoothed_value = a * value + (1 - a) * self._smoothed_value
+
+        normalized = self._normalize(self._smoothed_value)
         state = self._classify(normalized)
 
         with self._lock:
-            self.current_value = value
-            self.current_normalized = normalized
+            self.current_value = value  # 화면 표시는 raw 그대로
+            self.current_normalized = normalized  # 상태 판단은 부드럽게 만든 값 기준
             self.current_state = state
-            self._window.append(value)
+            self._window.append(value)  # ML 특징추출용 윈도우는 raw 유지
 
     def _normalize(self, value):
         span = self.max_contraction - self.rest_baseline
