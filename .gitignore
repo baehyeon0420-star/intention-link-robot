@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# MediaPipe 손 모델 (hand_track_test.py가 자동 다운로드, 7.6MB)
+emg_data_collection/hand_landmarker.task

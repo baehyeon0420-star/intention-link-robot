@@ -1,3 +1,7 @@
 pyserial>=3.5
 numpy>=1.24
 rustypot>=1.7.0  # AmazingHand(Feetech SCS0009) 제어용, --hand-port 쓸 때 필요
+
+# 손 추적 (하이브리드 카메라 경로). mediapipe 1.0.x는 macOS에서 Metal 초기화 크래시 -> 0.10.35 고정
+opencv-python
+mediapipe==0.10.35
