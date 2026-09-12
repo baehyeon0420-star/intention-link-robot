@@ -41,7 +41,9 @@ def parse_args():
     p.add_argument("--port", required=True, help="ESP32(EMG) 시리얼 포트")
     p.add_argument("--hand-port", required=True, help="AmazingHand USB-TTL 포트")
     p.add_argument("--baud", type=int, default=115200)
-    p.add_argument("--map", default="index:A,middle:B,ring:C,pinky:D", help="카메라 손가락 → 로봇 손가락")
+    p.add_argument("--map", default="thumb:A,index:B,middle:C,ring:D",
+                   help="카메라 손가락 → 로봇 손가락. 로봇은 엄지·검지·중지·약지 4개(새끼 없음)")
+    p.add_argument("--thumb-gain", type=float, default=1.0, help="엄지 굽힘 감도 (덜 굽으면 1.3~1.5로)")
     p.add_argument("--send-hz", type=float, default=10.0)
     p.add_argument("--min-delta", type=float, default=0.08)
     p.add_argument("--lost-frames", type=int, default=8, help="이 프레임 수만큼 손이 안 보이면 EMG로 전환 (~0.3초)")
@@ -64,6 +66,19 @@ def angle(a, b, c):
 
 def curl_ratio(lm, mcp, pip, dip, tip):
     return max(0.0, min(1.0, (180.0 - angle(lm[mcp], lm[pip], lm[tip])) / 140.0))
+
+
+def thumb_curl(lm, gain=1.0):
+    """엄지는 다른 손가락과 관절 구조가 달라 IP(3)·MCP(2) 두 관절 굽힘을 합산. 범위가 좁아 분모를 작게."""
+    a_ip = angle(lm[2], lm[3], lm[4])    # 펴면 ~180
+    a_mcp = angle(lm[1], lm[2], lm[3])   # 펴면 ~170
+    return max(0.0, min(1.0, ((180.0 - a_ip) + (170.0 - a_mcp)) / 100.0 * gain))
+
+
+def all_curls(lm, thumb_gain=1.0):
+    c = {"thumb": thumb_curl(lm, thumb_gain)}
+    c.update({name: curl_ratio(lm, *idx) for name, idx in FINGERS.items()})
+    return c
 
 
 def main():
@@ -125,7 +140,7 @@ def main():
             ratios = None
             if source == "CAMERA" and visible:
                 lm = res.hand_landmarks[0]
-                curls = {name: curl_ratio(lm, *idx) for name, idx in FINGERS.items()}
+                curls = all_curls(lm, args.thumb_gain)
                 ratios = {mapping[n]: c for n, c in curls.items() if n in mapping}
                 for p in lm:
                     cv2.circle(frame, (int(p.x * w), int(p.y * h)), 3, (0, 255, 0), -1)
