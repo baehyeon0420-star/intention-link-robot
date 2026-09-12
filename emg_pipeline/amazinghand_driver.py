@@ -18,6 +18,9 @@ CLOSE_DEG = {1: 90, 2: -90, 3: 54, 4: 90, 5: 24, 6: 118, 7: 54, 8: 90}
 # HOLD: Release/GripClose 중간값 (절반만 오므림). 필요하면 튜닝.
 HOLD_DEG = {sid: (OPEN_DEG[sid] + CLOSE_DEG[sid]) / 2 for sid in OPEN_DEG}
 
+# 손가락별 서보 ID 쌍 (amazinghand-setup README: A=1,2 / B=3,4 / C=5,6 / D=7,8)
+FINGER_IDS = {"A": (1, 2), "B": (3, 4), "C": (5, 6), "D": (7, 8)}
+
 
 class AmazingHandDriver:
     """RobotArmController가 기대하는 release()/hold()/grip_close()/shutdown() 인터페이스."""
@@ -65,6 +68,36 @@ class AmazingHandDriver:
 
     def grip_close(self):
         self._move_all(CLOSE_DEG)
+
+    def set_fingers(self, ratios, min_delta=0.08):
+        """손가락별 비율(0=폄, 1=굽힘)로 개별 제어. ratios: {"A":0~1, "B":..., "C":..., "D":...}
+
+        변화량이 min_delta 미만인 손가락은 명령을 보내지 않는다 (서보 버스 포화 방지).
+        속도는 최초 1회만 쓴다 (_move_all처럼 매번 쓰지 않음).
+        반환: 실제로 명령을 보낸 손가락 수.
+        """
+        self._ensure_torque()
+        if not getattr(self, "_speed_written", False):
+            for sid in OPEN_DEG:
+                self._robust(lambda sid=sid: self.c.write_goal_speed(sid, self.speed))
+            self._speed_written = True
+        if not hasattr(self, "_last_ratio"):
+            self._last_ratio = {}
+
+        sent = 0
+        for finger, r in ratios.items():
+            if finger not in FINGER_IDS:
+                continue
+            r = max(0.0, min(1.0, float(r)))
+            last = self._last_ratio.get(finger)
+            if last is not None and abs(r - last) < min_delta:
+                continue
+            self._last_ratio[finger] = r
+            for sid in FINGER_IDS[finger]:
+                deg = OPEN_DEG[sid] + (CLOSE_DEG[sid] - OPEN_DEG[sid]) * r
+                self._robust(lambda sid=sid, deg=deg: self.c.write_goal_position(sid, np.deg2rad(deg)))
+            sent += 1
+        return sent
 
     def shutdown(self):
         """모든 서보 토크 해제. 프로그램 종료 시 반드시 호출할 것
