@@ -4,3 +4,7 @@ __pycache__/
 
 # MediaPipe 손 모델 (hand_track_test.py가 자동 다운로드, 7.6MB)
 emg_data_collection/hand_landmarker.task
+
+# 파생 산출물 (features.py / train.py가 재생성)
+emg_data_collection/loso_experiments/*.npy
+emg_data_collection/loso_experiments/final_model.npz
