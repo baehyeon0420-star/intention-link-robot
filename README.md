@@ -60,11 +60,12 @@ python main.py --port /dev/cu.usbserial-XXXX --calibrate --hand-port /dev/cu.usb
 | `--baud` | 115200 | ESP32 `Serial.begin()`과 동일하게 |
 | `--rest-baseline` | 18 | 힘 뺀 상태(rest) raw 평균값. `--calibrate` 쓰면 무시되고 자동 측정됨 |
 | `--max-contraction` | 1321 | 최대 수축(grip) raw 평균값. `--calibrate` 쓰면 무시되고 자동 측정됨 |
-| `--calibrate` | 꺼짐 | 시작할 때 REST 3초 + 최대수축 3초 측정해서 위 두 값을 자동으로 잡음. 전극 상태가 매번 달라지므로 추천 |
+| `--calibrate` | 꺼짐 | 시작할 때 REST 3초 + 최대수축 3초 측정해서 위 두 값을 자동으로 잡음(최대수축은 순간 최고치가 아니라 중앙값). 전극 상태가 매번 달라지므로 추천 |
 | `--calibrate-seconds` | 3.0 | 캘리브레이션 각 단계 측정 시간(초) |
 | `--model` | `final_model.npz` | 학습된 모델 파일 경로 |
 | `--interval` | 0.05 | 메인 루프 주기(초) |
 | `--hand-port` | (없음) | AmazingHand용 USB-TTL 포트. 안 주면 콘솔 출력만 하고 손은 안 움직임 |
+| `--smoothing` | 0.02 | EMG 평활 강도. 500Hz에서 시간상수 약 100ms |
 
 ## 아직 안 된 것 / 다음 단계
 

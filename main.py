@@ -39,8 +39,9 @@ def parse_args():
     p.add_argument(
         "--smoothing",
         type=float,
-        default=0.15,
-        help="EMG 신호 이동평균 강도(0~1). 작을수록 더 부드럽지만 반응이 느려짐. 기본 0.15",
+        default=0.02,
+        help="EMG 신호 이동평균 강도(0~1). 작을수록 더 부드럽지만 반응이 느려짐. "
+        "기본 0.02 (500Hz에서 시간상수 약 100ms)",
     )
     p.add_argument("--model", default="final_model.npz")
     p.add_argument("--interval", type=float, default=0.05, help="제어 루프 주기(초), 기본 50ms")
