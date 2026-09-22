@@ -9,7 +9,8 @@ EMG 원시 신호 수집.
 자동 거부(2026-09-22): s5 수집에서 6회 중 4회가 rest 수준(평균 147~449)으로
 나왔는데도 그대로 저장돼 나중에 손으로 골라내야 했다. 이제는 회차가 끝나면
 즉시 검사해서 불합격이면 버리고 같은 회차를 다시 받는다. 합격 회차가 --reps 만큼
-모일 때까지 반복하고, 연속 --max-fail 회 불합격이면 하드웨어 문제로 보고 중단한다.
+모일 때까지 반복한다(기본 무제한, --max-fail N 이면 연속 N회 불합격 시 중단). Ctrl+C 로
+끊으면 그때까지 합격분만 저장한다.
 불합격 회차는 본 데이터에 섞지 않고 rejected/ 폴더에 따로 남긴다(원인 분석용).
 
 실시간 필터(2026-09-22 저녁): 접촉이 들락날락하면 0(ADC 바닥 = 끊김)과 4095(포화
@@ -124,8 +125,8 @@ def parse_args():
                         "(s5 실패 회차는 최대 449, s1_v5 정상 회차 최소 753)")
     p.add_argument("--sep-std", type=float, default=5.0,
                    help="grip 평균이 rest 중앙값보다 rest 표준편차의 몇 배 이상 커야 합격인지")
-    p.add_argument("--max-fail", type=int, default=3,
-                   help="연속 불합격 허용 횟수. 넘으면 하드웨어 문제로 보고 중단")
+    p.add_argument("--max-fail", type=int, default=0,
+                   help="연속 불합격 허용 횟수. 0이면 합격이 --reps 만큼 채워질 때까지 무제한 (Ctrl+C 로 중단, 합격분은 저장됨)")
     p.add_argument("--min-valid", type=float, default=20.0,
                    help="grip 회차에서 0·4095 를 뺀 유효 샘플이 전체의 몇 %% 이상이어야 판정하는지")
     p.add_argument("--no-check", action="store_true", help="자동 거부 끄기 (예전 방식: 무조건 저장)")
@@ -209,10 +210,17 @@ def main():
         rv = [v for v in rv if v < 4095]  # 포화 스파이크만 제외
         if rv:
             rest_med = statistics.median(rv)
-            rest_std = statistics.pstdev(rv) if len(rv) > 1 else 0.0
-            print(f"   rest 중앙값={rest_med:.0f}, 표준편차={rest_std:.0f}, 0값={sum(1 for v in rv if v == 0)/len(rv)*100:.0f}%")
+            # 표준편차는 스파이크 몇 개에 수천까지 뛰어 기준선이 ADC 상한을 넘는 일이 있었다
+            # (18:30 수집: 중앙값 0, σ 1650 → 기준 8248). 스파이크에 안 흔들리는 MAD 로 잡는다.
+            rest_std = 1.4826 * statistics.median(abs(v - rest_med) for v in rv)
+            high = sum(1 for v in rv if v > args.min_mean) / len(rv) * 100
+            print(f"   rest 중앙값={rest_med:.0f}, 산포(MAD)={rest_std:.0f}, 0값={sum(1 for v in rv if v == 0)/len(rv)*100:.0f}%, "
+                  f"{args.min_mean:.0f} 초과={high:.0f}%")
             if rest_std == 0:
                 print("   (rest 가 0에 붙어 있어 σ 기준은 무의미 → --min-mean 만 적용)")
+            if high >= 5:
+                print(f"   ⚠️ 기준선 측정 중 {args.min_mean:.0f} 초과가 {high:.0f}% — 힘이 들어가 있거나 접촉 불안정. σ 기준 끄고 --min-mean 만 적용")
+                rest_std = 0.0
         else:
             print("   ⚠ rest 데이터 없음. 연결 확인 필요")
 
@@ -222,63 +230,71 @@ def main():
     attempt = 0
     consecutive_fail = 0
     aborted = False
-    while accepted < args.reps:
-        attempt += 1
-        print(f"\n[{accepted + 1}/{args.reps}] (시도 {attempt}) 준비...")
-        for i in range(args.countdown, 0, -1):
-            print(f"   {i}")
-            time.sleep(1)
-        if args.lead_in > 0:
-            # 먼저 쥐게 하고, 힘이 다 올라온 뒤에 측정을 시작한다.
-            print(f"   ▶ 지금 쥐세요!")
-            time.sleep(args.lead_in)
-            print(f"   ● 측정 중... ({args.seconds:.0f}초) — 그대로 유지")
-        else:
-            print(f"   ▶ 시작! ({args.seconds:.0f}초)")
+    try:
+        while accepted < args.reps:
+            attempt += 1
+            print(f"\n[{accepted + 1}/{args.reps}] (시도 {attempt}) 준비...")
+            for i in range(args.countdown, 0, -1):
+                print(f"   {i}")
+                time.sleep(1)
+            if args.lead_in > 0:
+                # 먼저 쥐게 하고, 힘이 다 올라온 뒤에 측정을 시작한다.
+                print(f"   ▶ 지금 쥐세요!")
+                time.sleep(args.lead_in)
+                print(f"   ● 측정 중... ({args.seconds:.0f}초) — 그대로 유지")
+            else:
+                print(f"   ▶ 시작! ({args.seconds:.0f}초)")
 
-        rows, values = pump.capture(args.seconds)
-        if args.no_filter:
-            v_rows, v_vals, v_pct = rows, values, 100.0
-        else:
-            v_rows, v_vals, v_pct = split_valid(rows, values, args.gesture)
+            rows, values = pump.capture(args.seconds)
+            if args.no_filter:
+                v_rows, v_vals, v_pct = rows, values, 100.0
+            else:
+                v_rows, v_vals, v_pct = split_valid(rows, values, args.gesture)
 
-        if args.no_check:
-            ok, reason = (bool(v_vals), "ok" if v_vals else "수신 데이터 없음")
-        else:
-            ok, reason = check_rep(v_vals, v_pct, args, rest_med, rest_std, rep_means)
+            if args.no_check:
+                ok, reason = (bool(v_vals), "ok" if v_vals else "수신 데이터 없음")
+            else:
+                ok, reason = check_rep(v_vals, v_pct, args, rest_med, rest_std, rep_means)
 
-        med = statistics.median(v_vals) if v_vals else 0.0
-        info = f"{len(values)}샘플 중 유효 {v_pct:.0f}%, 중앙값={med:.0f}"
-        if ok:
-            accepted += 1
-            consecutive_fail = 0
-            all_rows.extend([r + [args.subject, args.gesture] for r in v_rows])
-            raw_rows.extend([r + [args.subject, args.gesture] for r in rows])
-            rep_means.append(med)
-            drop = ""
-            if len(rep_means) > 1:
-                ratio = med / rep_means[0] if rep_means[0] else 0
-                drop = f"  (1회차 대비 {ratio*100:.0f}%)"
-                if ratio < 0.7:
-                    drop += "  ⚠️ 힘이 빠지고 있음 — 더 쉬었다 하세요"
-            print(f"   ✔ 합격  {info}{drop}")
-            if v_pct < 50:
-                print(f"      ⚠️ 끊김 {100-v_pct:.0f}% — 케이블/스냅 고정 확인")
-        else:
-            consecutive_fail += 1
-            rej_rows.extend([r + [args.subject, args.gesture, attempt, reason] for r in rows])
-            print(f"   ✘ 불합격 ({consecutive_fail}/{args.max_fail})  {info}")
-            print(f"      사유: {reason}")
-            if consecutive_fail >= args.max_fail:
-                print(f"\n   ⛔ 연속 {args.max_fail}회 불합격 → 쥐는 방법이 아니라 하드웨어 문제입니다.")
-                print("      전극·REF·케이블 확인 후 sensor_check.py 로 파형을 보고 다시 시작하세요.")
-                aborted = True
-                break
-            print("      전극 눌러 붙이고 다시 쥐세요.")
+            med = statistics.median(v_vals) if v_vals else 0.0
+            info = f"{len(values)}샘플 중 유효 {v_pct:.0f}%, 중앙값={med:.0f}"
+            if ok:
+                accepted += 1
+                consecutive_fail = 0
+                all_rows.extend([r + [args.subject, args.gesture] for r in v_rows])
+                raw_rows.extend([r + [args.subject, args.gesture] for r in rows])
+                rep_means.append(med)
+                drop = ""
+                if len(rep_means) > 1:
+                    ratio = med / rep_means[0] if rep_means[0] else 0
+                    drop = f"  (1회차 대비 {ratio*100:.0f}%)"
+                    if ratio < 0.7:
+                        drop += "  ⚠️ 힘이 빠지고 있음 — 더 쉬었다 하세요"
+                print(f"   ✔ 합격  {info}{drop}")
+                if v_pct < 50:
+                    print(f"      ⚠️ 끊김 {100-v_pct:.0f}% — 케이블/스냅 고정 확인")
+            else:
+                consecutive_fail += 1
+                rej_rows.extend([r + [args.subject, args.gesture, attempt, reason] for r in rows])
+                lim = f"/{args.max_fail}" if args.max_fail > 0 else ""
+                print(f"   ✘ 불합격 (연속 {consecutive_fail}{lim})  {info}")
+                print(f"      사유: {reason}")
+                if args.max_fail > 0 and consecutive_fail >= args.max_fail:
+                    print(f"\n   ⛔ 연속 {args.max_fail}회 불합격 → 쥐는 방법이 아니라 하드웨어 문제입니다.")
+                    print("      전극·REF·케이블 확인 후 sensor_check.py 로 파형을 보고 다시 시작하세요.")
+                    aborted = True
+                    break
+                if consecutive_fail % 3 == 0:
+                    print("      ⚠️ 연속 3회 — 전극·REF·케이블을 한 번 눌러 고정하고 계속하세요 (그만두려면 Ctrl+C, 합격분은 저장됨)")
+                else:
+                    print("      전극 눌러 붙이고 다시 쥐세요.")
 
-        if accepted < args.reps and args.rest_between > 0:
-            print(f"   ... {args.rest_between:.0f}초 휴식 (힘 완전히 빼세요)")
-            time.sleep(args.rest_between)
+            if accepted < args.reps and args.rest_between > 0:
+                print(f"   ... {args.rest_between:.0f}초 휴식 (힘 완전히 빼세요)")
+                time.sleep(args.rest_between)
+    except KeyboardInterrupt:
+        print(f"\n   ⏹ Ctrl+C — 지금까지 합격 {accepted}회만 저장하고 종료합니다.")
+        aborted = True
 
     pump.stop()
     ser.close()
