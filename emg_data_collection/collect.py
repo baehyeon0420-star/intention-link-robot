@@ -23,7 +23,8 @@ grip 류 검사 기준(각 회차 끝날 때, 0·4095 제외한 파형 기준):
   - 마지막 0.5초 중앙값 >= 첫 0.5초 중앙값 x 0.5  (회차 안에서 신호가 빠짐)
   - 중앙값 >= 이미 합격한 회차 중앙값 x 0.4  (s3식 붕괴)
 rest 검사 기준(4095 만 제외, 0은 실제 기준선이라 남김):
-  - 중앙값 < --min-mean 의 절반  (수축이 섞여 중앙값까지 올라오면 불합격. 순간 스파이크는 무시)
+  - 중앙값 < --min-mean 의 절반  (수축이 섞여 중앙값까지 올라오면 불합격)
+  - --min-mean 초과 샘플 < 5%   (1~2초짜리 지속 수축 차단. 순간 스파이크는 5% 까지 허용)
 
 사용 예:
   # 휴식 데이터 (한 번에 길게 받아도 됨 - 힘을 안 주니 피로가 없음)
@@ -155,6 +156,11 @@ def check_rep(valid, valid_pct, args, rest_med, rest_std, accepted_meds):
     if args.gesture == "rest":
         if med >= args.min_mean * 0.5:
             return False, f"rest 중앙값 {med:.0f} >= {args.min_mean*0.5:.0f} (수축 섞임)"
+        # 중앙값이 0이어도 1~2초짜리 수축이 섞이면 rest 가 아니다 (18:18 수집 1·2회차: 600 초과 15%).
+        # 순간 스파이크는 5% 까지 봐준다.
+        high = sum(1 for v in valid if v > args.min_mean) / len(valid) * 100
+        if high >= 5:
+            return False, f"rest 중 {args.min_mean:.0f} 초과 샘플 {high:.0f}% >= 5% (지속 수축 섞임)"
         return True, "ok"
 
     if valid_pct < args.min_valid:
