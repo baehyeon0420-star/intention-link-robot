@@ -6,35 +6,18 @@ EMG 원시 신호 수집.
 "짧게 여러 번 + 사이에 휴식"으로 나눠 받고, 매 회차 평균을 즉시 찍어서
 힘이 빠지고 있으면 수집 중에 바로 알 수 있게 한다.
 
-자동 거부(2026-09-22): s5 수집에서 6회 중 4회가 rest 수준(평균 147~449)으로
-나왔는데도 그대로 저장돼 나중에 손으로 골라내야 했다. 이제는 회차가 끝나면
-즉시 검사해서 불합격이면 버리고 같은 회차를 다시 받는다. 합격 회차가 --reps 만큼
-모일 때까지 반복한다(기본 무제한, --max-fail N 이면 연속 N회 불합격 시 중단). Ctrl+C 로
-끊으면 그때까지 합격분만 저장한다.
-불합격 회차는 본 데이터에 섞지 않고 rejected/ 폴더에 따로 남긴다(원인 분석용).
+기록 정책(2026-09-22 저녁, 최종): 판정으로 회차를 걸러내지 않는다.
+사람의 근전도는 원래 일정하지 않고 사람마다 파형이 다르다. "정상 범위"를 정해 놓고
+거기서 벗어난 회차를 버리면 그건 측정이 아니라 선별이다. 그래서 데이터가 들어오기만 하면
+회차를 그대로 기록하고, 대신 회차마다 통계를 {subject}_{gesture}_reps.csv 에 남겨
+신호가 어떻게 흔들렸는지가 결과의 일부가 되게 한다.
 
-실시간 필터(2026-09-22 저녁): 접촉이 들락날락하면 0(ADC 바닥 = 끊김)과 4095(포화
-스파이크)가 파형 사이에 섞인다. 이 두 값은 근육 신호가 아니므로 본 CSV에는 기록하지
-않는다. 걸러내기 전 전체 샘플은 raw/{subject}_{gesture}_raw.csv 에 그대로 남긴다
-(무엇을 뺐는지 항상 확인 가능). 판정도 걸러낸 파형의 중앙값으로 한다.
-
-판정은 절대 높이를 쓰지 않는다(2026-09-22 저녁): 같은 동작도 사람마다 진폭이 2배 넘게
-다르다(s2 2,599 vs s3 1,108). 그래서 grip 류는 시작할 때 그 사람의 "최대한 세게" 기준
-쥐기(MVC) 를 한 번 받고, 회차는 자기 MVC 대비 비율과 파형 모양으로만 판정한다.
-기준 쥐기는 {subject}_mvc.csv 에 저장한다(%MVC 정규화용).
-
-grip 류 검사 기준(각 회차 끝날 때, 0·4095 제외한 파형 기준):
-  - 유효 샘플이 전체의 --min-valid(20%) 미만이면 불합격 (파형이 거의 없음)
-  - 유효 파형 표준편차 < 20 이면 불합격 (살아있는 EMG 가 아니라 고정 전압)
-  - 중앙값 < 자기 MVC 중앙값 x --min-ratio(0.3) 이면 불합격 (자기 기준 대비 안 쥔 것)
-  - 중앙값 < rest 중앙값 + MAD x --sep-std 이면 불합격 (rest 가 0에 붙어 있으면 자동 무시)
-  - 마지막 0.5초 중앙값 < 첫 0.5초 중앙값 x 0.5 이면 불합격 (회차 안에서 신호가 빠짐)
-  - 중앙값 < 이미 합격한 회차 중앙값 x 0.4 이면 불합격 (s3식 붕괴)
-  - --min-mean 은 기본 0(끔). 절대 하한이 꼭 필요할 때만 켠다
-기준 쥐기(MVC) 검사: 유효 50% 이상, 표준편차 20 이상, 앞뒤 반토막 아님. 될 때까지 다시 받음
-rest 검사 기준(4095 만 제외, 0은 실제 기준선이라 남김):
-  - 중앙값 < MVC 가 없으므로 절대값 사용: --rest-max(300) 미만
-  - --rest-max 초과 샘플 < 5%   (1~2초짜리 지속 수축 차단. 순간 스파이크는 5% 까지 허용)
+  - 본 CSV: 0(ADC 바닥 = 끊김)·4095(포화) 만 뺀 파형. rest 는 4095 만 뺀다
+  - raw/{subject}_{gesture}_raw.csv: 필터 전 전체 샘플 (무엇을 뺐는지 항상 확인 가능)
+  - {subject}_{gesture}_reps.csv: 회차별 유효%, 중앙값, 사분위(25/75), 앞/뒤 0.5초 중앙값, 표준편차
+  - {subject}_mvc.csv: grip 류 시작 전 "최대한 세게" 기준 쥐기 1회 (%MVC 정규화용). 판정 없음
+  - --check 를 붙이면 예전 판정 규칙(자기 MVC 대비 비율·파형 모양)으로 걸러내고 재시도한다.
+    기본은 꺼짐.
 
 사용 예:
   # 휴식 데이터 (한 번에 길게 받아도 됨 - 힘을 안 주니 피로가 없음)
@@ -143,7 +126,8 @@ def parse_args():
                    help="연속 불합격 허용 횟수. 0이면 합격이 --reps 만큼 채워질 때까지 무제한 (Ctrl+C 로 중단, 합격분은 저장됨)")
     p.add_argument("--min-valid", type=float, default=20.0,
                    help="grip 회차에서 0·4095 를 뺀 유효 샘플이 전체의 몇 %% 이상이어야 판정하는지")
-    p.add_argument("--no-check", action="store_true", help="자동 거부 끄기 (예전 방식: 무조건 저장)")
+    p.add_argument("--check", action="store_true",
+                   help="회차 판정 켜기(자기 MVC 대비 비율·파형 모양으로 걸러내고 재시도). 기본은 판정 없이 전부 기록")
     p.add_argument("--no-filter", action="store_true", help="실시간 필터 끄기 (0·4095 도 본 CSV 에 기록)")
     return p.parse_args()
 
@@ -230,11 +214,12 @@ def main():
     all_rows = []      # 본 CSV (필터 통과분)
     raw_rows = []      # 합격 회차의 전체 샘플 (필터 전)
     rej_rows = []
-    rep_means = []     # 합격 회차 중앙값 (이름은 기존 피로 분석 코드와 호환용)
+    rep_means = []     # 기록된 회차 중앙값 (이름은 기존 피로 분석 코드와 호환용)
+    rep_summary = []   # 회차별 통계 → {subject}_{gesture}_reps.csv
 
     # --- rest 기준선 (grip 류만) ---
     rest_med = rest_std = None
-    if not args.no_check and args.gesture != "rest" and args.rest_seconds > 0:
+    if args.gesture != "rest" and args.rest_seconds > 0:
         print(f"\n[기준선] 힘 완전히 빼고 가만히... ({args.rest_seconds:.0f}초)")
         for i in range(args.countdown, 0, -1):
             print(f"   {i}")
@@ -249,17 +234,15 @@ def main():
             high = sum(1 for v in rv if v > args.rest_max) / len(rv) * 100
             print(f"   rest 중앙값={rest_med:.0f}, 산포(MAD)={rest_std:.0f}, 0값={sum(1 for v in rv if v == 0)/len(rv)*100:.0f}%, "
                   f"{args.rest_max:.0f} 초과={high:.0f}%")
-            if rest_std == 0:
-                print("   (rest 가 0에 붙어 있어 σ 기준은 무의미 → MVC 비율로만 판정)")
             if high >= 5:
-                print(f"   ⚠️ 기준선 측정 중 {args.rest_max:.0f} 초과가 {high:.0f}% — 힘이 들어가 있거나 접촉 불안정. σ 기준 끔")
+                print(f"   (기준선 측정 중 {args.rest_max:.0f} 초과가 {high:.0f}% — 기록에 남김)")
                 rest_std = 0.0
         else:
             print("   ⚠ rest 데이터 없음. 연결 확인 필요")
 
     # --- 기준 쥐기 MVC (grip 류만). 될 때까지 반복 ---
     mvc_med = None
-    if not args.no_check and args.gesture != "rest" and args.mvc_seconds > 0:
+    if args.gesture != "rest" and args.mvc_seconds > 0:
         mvc_try = 0
         try:
             while True:
@@ -274,7 +257,7 @@ def main():
                 print(f"   ● 측정 중... ({args.mvc_seconds:.0f}초)")
                 rows, values = pump.capture(args.mvc_seconds)
                 v_rows, v_vals, v_pct = split_valid(rows, values, args.gesture)
-                ok, reason = check_mvc(v_vals, v_pct)
+                ok, reason = check_mvc(v_vals, v_pct) if args.check else (True, "기록")
                 # 합격/불합격 상관없이 기준 쥐기 시도는 전부 raw/ 에 남긴다 (파형 분석용. 19:00 시도 7회가 안 남아 있었음)
                 os.makedirs(raw_dir, exist_ok=True)
                 mvc_raw = os.path.join(raw_dir, f"{args.subject}_mvc_attempts_raw.csv")
@@ -285,7 +268,10 @@ def main():
                     w.writerows([r + [args.subject, "mvc", mvc_try, "ok" if ok else reason] for r in rows])
                 if ok:
                     mvc_med = statistics.median(v_vals)
-                    print(f"   ✔ 기준 확보  유효 {v_pct:.0f}%, 중앙값={mvc_med:.0f} → 회차 합격선 {mvc_med*args.min_ratio:.0f}")
+                    line = f"   ✔ 기준 기록  유효 {v_pct:.0f}%, 중앙값={mvc_med:.0f}"
+                    if args.check:
+                        line += f" → 회차 합격선 {mvc_med*args.min_ratio:.0f}"
+                    print(line)
                     mvc_fname = f"{args.subject}_mvc.csv"
                     with open(mvc_fname, "a", newline="") as f:
                         w = csv.writer(f)
@@ -303,7 +289,7 @@ def main():
             pump.stop(); ser.close(); return
 
     print(f"\n=== {args.subject} / {args.gesture} : {args.seconds:.0f}초 x {args.reps}회"
-          f"{' (자동 거부 꺼짐)' if args.no_check else ''} ===")
+          f"{' (판정 켜짐)' if args.check else ' (판정 없음, 전부 기록)'} ===")
     accepted = 0
     attempt = 0
     consecutive_fail = 0
@@ -329,26 +315,36 @@ def main():
             else:
                 v_rows, v_vals, v_pct = split_valid(rows, values, args.gesture)
 
-            if args.no_check:
-                ok, reason = (bool(v_vals), "ok" if v_vals else "수신 데이터 없음")
-            else:
+            if args.check:
                 ok, reason = check_rep(v_vals, v_pct, args, rest_med, rest_std, mvc_med, rep_means)
+            else:
+                ok, reason = (bool(v_vals), "기록" if v_vals else "수신 데이터 없음")
 
             med = statistics.median(v_vals) if v_vals else 0.0
-            info = f"{len(values)}샘플 중 유효 {v_pct:.0f}%, 중앙값={med:.0f}"
+            if v_vals:
+                q = statistics.quantiles(v_vals, n=4) if len(v_vals) >= 4 else [med, med, med]
+                head, tail = _edge_medians(v_vals)
+                sd = statistics.pstdev(v_vals) if len(v_vals) > 1 else 0.0
+            else:
+                q, head, tail, sd = [0, 0, 0], 0, 0, 0.0
+            info = (f"{len(values)}샘플 중 유효 {v_pct:.0f}%, 중앙값={med:.0f} "
+                    f"(25~75% {q[0]:.0f}~{q[2]:.0f}, 앞 {head:.0f}→뒤 {tail:.0f})")
             if ok:
                 accepted += 1
                 consecutive_fail = 0
                 all_rows.extend([r + [args.subject, args.gesture] for r in v_rows])
                 raw_rows.extend([r + [args.subject, args.gesture] for r in rows])
                 rep_means.append(med)
+                rep_summary.append([args.subject, args.gesture, accepted, attempt, len(values), round(v_pct, 1),
+                                    round(med), round(q[0]), round(q[2]), round(head), round(tail), round(sd, 1),
+                                    round(mvc_med) if mvc_med else "", round(rest_med) if rest_med is not None else ""])
                 drop = ""
                 if len(rep_means) > 1:
                     ratio = med / rep_means[0] if rep_means[0] else 0
                     drop = f"  (1회차 대비 {ratio*100:.0f}%)"
                     if ratio < 0.7:
                         drop += "  ⚠️ 힘이 빠지고 있음 — 더 쉬었다 하세요"
-                print(f"   ✔ 합격  {info}{drop}")
+                print(f"   ✔ {'합격' if args.check else '기록'}  {info}{drop}")
                 if v_pct < 50:
                     print(f"      ⚠️ 끊김 {100-v_pct:.0f}% — 케이블/스냅 고정 확인")
             else:
@@ -385,6 +381,16 @@ def main():
                 w.writerow(["t_ms", "raw", "subject", "gesture"])
             w.writerows(all_rows)
 
+    if rep_summary:
+        sum_fname = f"{args.subject}_{args.gesture}_reps.csv"
+        file_exists = os.path.exists(sum_fname)
+        with open(sum_fname, "a", newline="") as f:
+            w = csv.writer(f)
+            if not file_exists:
+                w.writerow(["subject", "gesture", "rep", "attempt", "n_samples", "valid_pct", "median", "q25", "q75",
+                            "head_med", "tail_med", "std", "mvc_median", "rest_median"])
+            w.writerows(rep_summary)
+
     if raw_rows and not args.no_filter:
         os.makedirs(raw_dir, exist_ok=True)
         file_exists = os.path.exists(raw_fname)
@@ -404,7 +410,9 @@ def main():
             w.writerows(rej_rows)
 
     status = "중단" if aborted else "완료"
-    print(f"\n=== {status}: 합격 {accepted}/{args.reps}회, 시도 {attempt}회, {len(all_rows)}샘플 -> {fname} ===")
+    print(f"\n=== {status}: {'합격' if args.check else '기록'} {accepted}/{args.reps}회, 시도 {attempt}회, {len(all_rows)}샘플 -> {fname} ===")
+    if rep_summary:
+        print(f"회차별 통계 -> {args.subject}_{args.gesture}_reps.csv")
     if raw_rows and not args.no_filter:
         dropped = len(raw_rows) - len(all_rows)
         print(f"필터로 뺀 샘플 {dropped}개 ({dropped/len(raw_rows)*100:.0f}%), 필터 전 전체 -> {raw_fname}")
@@ -432,17 +440,17 @@ def main():
         decline = rep_means[-1] / rep_means[0] if rep_means[0] else 1.0
         print(f"피로 추세(회차-평균 상관): {corr:+.2f}, 마지막/처음 = {decline:.2f}", end="")
         if corr <= -0.7 and decline < 0.6:
-            print("  ⚠️ 회차가 갈수록 무너지고 있습니다 (s3 사례와 같은 패턴) — 다시 받으세요")
+            print("  (회차가 갈수록 내려감 — 피로 또는 접촉 변화. 기록에 남김)")
         elif corr <= -0.7:
-            print("  (완만한 하강이지만 크기는 허용 범위)")
+            print("  (완만한 하강)")
         else:
-            print("  (추세 없음 = 정상)")
+            print("  (뚜렷한 추세 없음)")
 
         print(f"최약 회차 / 중앙값: {worst / med:.2f}", end="")
         if worst < med * 0.4:
-            print("  ⚠️ 유독 약한 회차가 있습니다 — 그 회차는 grip이라 보기 어려움")
+            print("  (회차 간 편차 큼 — reps.csv 에 그대로 남김)")
         else:
-            print("  (모든 회차가 grip 수준 유지 = 정상)")
+            print()
     print()
 
 
