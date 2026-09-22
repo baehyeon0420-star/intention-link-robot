@@ -12,14 +12,18 @@ EMG 원시 신호 수집.
 모일 때까지 반복하고, 연속 --max-fail 회 불합격이면 하드웨어 문제로 보고 중단한다.
 불합격 회차는 본 데이터에 섞지 않고 rejected/ 폴더에 따로 남긴다(원인 분석용).
 
-grip 류 검사 기준(각 회차 끝날 때):
-  - 평균 >= rest 중앙값 + rest 표준편차 x --sep-std, 그리고 평균 >= --min-mean
-  - 0값 비율 < 10%  (ADC 바닥에 붙음 = 접촉 불량)
-  - 4095 비율 < 2%  (게인 과다)
-  - 마지막 0.5초 평균 >= 첫 0.5초 평균 x 0.5  (회차 안에서 신호가 빠짐)
-  - 평균 >= 이미 합격한 회차 중앙값 x 0.4  (s3식 붕괴)
-rest 검사 기준:
-  - --min-mean 의 절반을 넘는 샘플이 2% 미만  (수축이 섞임)
+실시간 필터(2026-09-22 저녁): 접촉이 들락날락하면 0(ADC 바닥 = 끊김)과 4095(포화
+스파이크)가 파형 사이에 섞인다. 이 두 값은 근육 신호가 아니므로 본 CSV에는 기록하지
+않는다. 걸러내기 전 전체 샘플은 raw/{subject}_{gesture}_raw.csv 에 그대로 남긴다
+(무엇을 뺐는지 항상 확인 가능). 판정도 걸러낸 파형의 중앙값으로 한다.
+
+grip 류 검사 기준(각 회차 끝날 때, 0·4095 제외한 파형 기준):
+  - 유효 샘플이 전체의 --min-valid(20%) 미만이면 불합격 (파형이 거의 없음)
+  - 중앙값 >= rest 중앙값 + rest 표준편차 x --sep-std, 그리고 중앙값 >= --min-mean
+  - 마지막 0.5초 중앙값 >= 첫 0.5초 중앙값 x 0.5  (회차 안에서 신호가 빠짐)
+  - 중앙값 >= 이미 합격한 회차 중앙값 x 0.4  (s3식 붕괴)
+rest 검사 기준(4095 만 제외, 0은 실제 기준선이라 남김):
+  - 중앙값 < --min-mean 의 절반  (수축이 섞여 중앙값까지 올라오면 불합격. 순간 스파이크는 무시)
 
 사용 예:
   # 휴식 데이터 (한 번에 길게 받아도 됨 - 힘을 안 주니 피로가 없음)
@@ -121,48 +125,53 @@ def parse_args():
                    help="grip 평균이 rest 중앙값보다 rest 표준편차의 몇 배 이상 커야 합격인지")
     p.add_argument("--max-fail", type=int, default=3,
                    help="연속 불합격 허용 횟수. 넘으면 하드웨어 문제로 보고 중단")
+    p.add_argument("--min-valid", type=float, default=20.0,
+                   help="grip 회차에서 0·4095 를 뺀 유효 샘플이 전체의 몇 %% 이상이어야 판정하는지")
     p.add_argument("--no-check", action="store_true", help="자동 거부 끄기 (예전 방식: 무조건 저장)")
+    p.add_argument("--no-filter", action="store_true", help="실시간 필터 끄기 (0·4095 도 본 CSV 에 기록)")
     return p.parse_args()
 
 
-def _edge_means(values, hz_guess=500, edge_sec=0.5):
-    """회차 앞/뒤 edge_sec 구간 평균. 샘플 수가 적으면 반씩 나눔."""
+def split_valid(rows, values, gesture):
+    """(유효 rows, 유효 values, 전체 대비 유효 %). grip 류는 0·4095 제외, rest 는 4095 만 제외."""
+    lo = -1 if gesture == "rest" else 0
+    keep = [(r, v) for r, v in zip(rows, values) if lo < v < 4095]
+    pct = len(keep) / len(values) * 100 if values else 0.0
+    return [r for r, _ in keep], [v for _, v in keep], pct
+
+
+def _edge_medians(values, hz_guess=500, edge_sec=0.5):
+    """회차 앞/뒤 edge_sec 구간 중앙값. 샘플 수가 적으면 반씩 나눔."""
     n = max(1, min(int(hz_guess * edge_sec), len(values) // 2))
-    return statistics.mean(values[:n]), statistics.mean(values[-n:])
+    return statistics.median(values[:n]), statistics.median(values[-n:])
 
 
-def check_rep(values, args, rest_med, rest_std, accepted_means):
-    """(합격 여부, 사유 문자열). values 가 비어 있으면 불합격."""
-    if not values:
-        return False, "수신 데이터 없음"
-    mean = statistics.mean(values)
-    n = len(values)
-    zero_pct = sum(1 for v in values if v == 0) / n * 100
-    sat_pct = sum(1 for v in values if v >= 4095) / n * 100
+def check_rep(valid, valid_pct, args, rest_med, rest_std, accepted_meds):
+    """(합격 여부, 사유). valid 는 이미 0·4095 를 뺀 파형."""
+    if not valid:
+        return False, "유효 파형 없음 (전부 0 또는 4095)"
+    med = statistics.median(valid)
 
     if args.gesture == "rest":
-        contracted = sum(1 for v in values if v > args.min_mean * 0.5) / n * 100
-        if contracted >= 2:
-            return False, f"수축 섞임: {contracted:.0f}% 샘플이 {args.min_mean*0.5:.0f} 초과"
+        if med >= args.min_mean * 0.5:
+            return False, f"rest 중앙값 {med:.0f} >= {args.min_mean*0.5:.0f} (수축 섞임)"
         return True, "ok"
 
-    if zero_pct >= 10:
-        return False, f"0값 {zero_pct:.0f}% (ADC 바닥, 접촉 불량)"
-    if sat_pct >= 2:
-        return False, f"4095 포화 {sat_pct:.0f}% (게인 과다)"
-    if mean < args.min_mean:
-        return False, f"평균 {mean:.0f} < 최소 {args.min_mean:.0f} (rest 수준)"
+    if valid_pct < args.min_valid:
+        return False, f"유효 파형 {valid_pct:.0f}% < {args.min_valid:.0f}% (거의 끊김)"
+    if med < args.min_mean:
+        return False, f"중앙값 {med:.0f} < 최소 {args.min_mean:.0f} (rest 수준)"
     if rest_med is not None:
         need = rest_med + rest_std * args.sep_std
-        if mean < need:
-            return False, f"평균 {mean:.0f} < rest 기준선 {rest_med:.0f} + {args.sep_std:.0f}σ({need:.0f})"
-    head, tail = _edge_means(values)
+        if med < need:
+            return False, f"중앙값 {med:.0f} < rest 기준선 {rest_med:.0f} + {args.sep_std:.0f}σ({need:.0f})"
+    head, tail = _edge_medians(valid)
     if head > 0 and tail < head * 0.5:
         return False, f"회차 안에서 신호 빠짐: 앞 {head:.0f} → 뒤 {tail:.0f}"
-    if accepted_means:
-        med = statistics.median(accepted_means)
-        if mean < med * 0.4:
-            return False, f"평균 {mean:.0f} < 합격 회차 중앙값 {med:.0f} x 0.4 (붕괴)"
+    if accepted_meds:
+        ref = statistics.median(accepted_meds)
+        if med < ref * 0.4:
+            return False, f"중앙값 {med:.0f} < 합격 회차 중앙값 {ref:.0f} x 0.4 (붕괴)"
     return True, "ok"
 
 
@@ -171,14 +180,17 @@ def main():
     fname = f"{args.subject}_{args.gesture}.csv"
     rej_dir = "rejected"
     rej_fname = os.path.join(rej_dir, f"{args.subject}_{args.gesture}_rejected.csv")
+    raw_dir = "raw"
+    raw_fname = os.path.join(raw_dir, f"{args.subject}_{args.gesture}_raw.csv")
 
     ser = serial.Serial(args.port, args.baud, timeout=1)
     time.sleep(2)  # ESP32 리셋 대기
     pump = SerialPump(ser)  # 이 시점부터 계속 읽어서 버퍼가 밀리지 않게 함
 
-    all_rows = []
+    all_rows = []      # 본 CSV (필터 통과분)
+    raw_rows = []      # 합격 회차의 전체 샘플 (필터 전)
     rej_rows = []
-    rep_means = []
+    rep_means = []     # 합격 회차 중앙값 (이름은 기존 피로 분석 코드와 호환용)
 
     # --- rest 기준선 (grip 류만) ---
     rest_med = rest_std = None
@@ -188,6 +200,7 @@ def main():
             print(f"   {i}")
             time.sleep(1)
         _, rv = pump.capture(args.rest_seconds)
+        rv = [v for v in rv if v < 4095]  # 포화 스파이크만 제외
         if rv:
             rest_med = statistics.median(rv)
             rest_std = statistics.pstdev(rv) if len(rv) > 1 else 0.0
@@ -218,33 +231,41 @@ def main():
             print(f"   ▶ 시작! ({args.seconds:.0f}초)")
 
         rows, values = pump.capture(args.seconds)
+        if args.no_filter:
+            v_rows, v_vals, v_pct = rows, values, 100.0
+        else:
+            v_rows, v_vals, v_pct = split_valid(rows, values, args.gesture)
 
         if args.no_check:
-            ok, reason = (bool(values), "ok" if values else "수신 데이터 없음")
+            ok, reason = (bool(v_vals), "ok" if v_vals else "수신 데이터 없음")
         else:
-            ok, reason = check_rep(values, args, rest_med, rest_std, rep_means)
+            ok, reason = check_rep(v_vals, v_pct, args, rest_med, rest_std, rep_means)
 
-        mean = statistics.mean(values) if values else 0.0
+        med = statistics.median(v_vals) if v_vals else 0.0
+        info = f"{len(values)}샘플 중 유효 {v_pct:.0f}%, 중앙값={med:.0f}"
         if ok:
             accepted += 1
             consecutive_fail = 0
-            all_rows.extend([r + [args.subject, args.gesture] for r in rows])
-            rep_means.append(mean)
+            all_rows.extend([r + [args.subject, args.gesture] for r in v_rows])
+            raw_rows.extend([r + [args.subject, args.gesture] for r in rows])
+            rep_means.append(med)
             drop = ""
             if len(rep_means) > 1:
-                ratio = mean / rep_means[0] if rep_means[0] else 0
+                ratio = med / rep_means[0] if rep_means[0] else 0
                 drop = f"  (1회차 대비 {ratio*100:.0f}%)"
                 if ratio < 0.7:
                     drop += "  ⚠️ 힘이 빠지고 있음 — 더 쉬었다 하세요"
-            print(f"   ✔ 합격  {len(values)}샘플, 평균={mean:.0f}{drop}")
+            print(f"   ✔ 합격  {info}{drop}")
+            if v_pct < 50:
+                print(f"      ⚠️ 끊김 {100-v_pct:.0f}% — 케이블/스냅 고정 확인")
         else:
             consecutive_fail += 1
             rej_rows.extend([r + [args.subject, args.gesture, attempt, reason] for r in rows])
-            print(f"   ✘ 불합격 ({consecutive_fail}/{args.max_fail})  {len(values)}샘플, 평균={mean:.0f}")
+            print(f"   ✘ 불합격 ({consecutive_fail}/{args.max_fail})  {info}")
             print(f"      사유: {reason}")
             if consecutive_fail >= args.max_fail:
                 print(f"\n   ⛔ 연속 {args.max_fail}회 불합격 → 쥐는 방법이 아니라 하드웨어 문제입니다.")
-                print("      전극·REF·케이블 확인 후 sensor_check.py 로 분리도를 보고 다시 시작하세요.")
+                print("      전극·REF·케이블 확인 후 sensor_check.py 로 파형을 보고 다시 시작하세요.")
                 aborted = True
                 break
             print("      전극 눌러 붙이고 다시 쥐세요.")
@@ -264,6 +285,15 @@ def main():
                 w.writerow(["t_ms", "raw", "subject", "gesture"])
             w.writerows(all_rows)
 
+    if raw_rows and not args.no_filter:
+        os.makedirs(raw_dir, exist_ok=True)
+        file_exists = os.path.exists(raw_fname)
+        with open(raw_fname, "a", newline="") as f:
+            w = csv.writer(f)
+            if not file_exists:
+                w.writerow(["t_ms", "raw", "subject", "gesture"])
+            w.writerows(raw_rows)
+
     if rej_rows:
         os.makedirs(rej_dir, exist_ok=True)
         file_exists = os.path.exists(rej_fname)
@@ -275,10 +305,13 @@ def main():
 
     status = "중단" if aborted else "완료"
     print(f"\n=== {status}: 합격 {accepted}/{args.reps}회, 시도 {attempt}회, {len(all_rows)}샘플 -> {fname} ===")
+    if raw_rows and not args.no_filter:
+        dropped = len(raw_rows) - len(all_rows)
+        print(f"필터로 뺀 샘플 {dropped}개 ({dropped/len(raw_rows)*100:.0f}%), 필터 전 전체 -> {raw_fname}")
     if rej_rows:
         print(f"불합격 {attempt - accepted}회 -> {rej_fname}")
     if len(rep_means) > 2:
-        print(f"회차별 평균: {[f'{m:.0f}' for m in rep_means]}")
+        print(f"회차별 중앙값: {[f'{m:.0f}' for m in rep_means]}")
 
         # 회차 간 힘이 들쑥날쑥한 것 자체는 문제가 아니다(실사용에서도 매번 다르다).
         # 진짜 문제는 (1) 피로로 회차가 갈수록 단조롭게 무너지는 것,
