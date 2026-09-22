@@ -9,12 +9,13 @@ EMG 원시 신호 수집.
 기록 정책(2026-09-22 저녁, 최종): 판정으로 회차를 걸러내지 않는다.
 사람의 근전도는 원래 일정하지 않고 사람마다 파형이 다르다. "정상 범위"를 정해 놓고
 거기서 벗어난 회차를 버리면 그건 측정이 아니라 선별이다. 그래서 데이터가 들어오기만 하면
-회차를 그대로 기록하고, 대신 회차마다 통계를 {subject}_{gesture}_reps.csv 에 남겨
+회차를 그대로 기록하고, 대신 회차마다 통계를 summary/{subject}_{gesture}_reps.csv 에 남겨
 신호가 어떻게 흔들렸는지가 결과의 일부가 되게 한다.
 
   - 본 CSV: 0(ADC 바닥 = 끊김)·4095(포화) 만 뺀 파형. rest 는 4095 만 뺀다
   - raw/{subject}_{gesture}_raw.csv: 필터 전 전체 샘플 (무엇을 뺐는지 항상 확인 가능)
-  - {subject}_{gesture}_reps.csv: 회차별 유효%, 중앙값, 사분위(25/75), 앞/뒤 0.5초 중앙값, 표준편차
+  - summary/{subject}_{gesture}_reps.csv: 회차별 유효%, 중앙값, 사분위(25/75), 앞/뒤 0.5초 중앙값, 표준편차
+    (analysis/compare_thresholds.py 가 *_rest*.csv 를 긁으므로 최상위에 두면 안 됨)
   - {subject}_mvc.csv: grip 류 시작 전 "최대한 세게" 기준 쥐기 1회 (%MVC 정규화용). 판정 없음
   - --check 를 붙이면 예전 판정 규칙(자기 MVC 대비 비율·파형 모양)으로 걸러내고 재시도한다.
     기본은 꺼짐.
@@ -23,8 +24,13 @@ EMG 원시 신호 수집.
   # 휴식 데이터 (한 번에 길게 받아도 됨 - 힘을 안 주니 피로가 없음)
   python3 collect.py --port /dev/cu.usbserial-110 --subject s5 --gesture rest --seconds 10 --reps 1
 
-  # 쥐기 데이터 (3초씩 6회, 사이에 5초 휴식)
-  python3 collect.py --port /dev/cu.usbserial-110 --subject s5 --gesture grip --seconds 3 --reps 6 --rest-between 5
+  # 편한 쥐기 (물건 집듯이, 3초씩 6회) — 시작 시 rest 5초 + 최대 수축 3초(MVC) 도 같이 기록됨
+  python3 collect.py --port /dev/cu.usbserial-110 --subject s5 --gesture light --seconds 3 --reps 6 --rest-between 5
+
+  # 최대 쥐기 (3초씩 6회) — MVC 는 light 때 받았으니 생략
+  python3 collect.py --port /dev/cu.usbserial-110 --subject s5 --gesture grip --seconds 3 --reps 6 --rest-between 5 --mvc-seconds 0
+
+  → analysis/compare_thresholds.py 가 rest / light / grip 을 읽어 B(편한 쥐기 보정) vs C(최대 수축 보정) 를 비교한다
 
 저장: "{subject}_{gesture}.csv" (있으면 이어쓰기)
 """
@@ -382,7 +388,8 @@ def main():
             w.writerows(all_rows)
 
     if rep_summary:
-        sum_fname = f"{args.subject}_{args.gesture}_reps.csv"
+        os.makedirs("summary", exist_ok=True)
+        sum_fname = os.path.join("summary", f"{args.subject}_{args.gesture}_reps.csv")
         file_exists = os.path.exists(sum_fname)
         with open(sum_fname, "a", newline="") as f:
             w = csv.writer(f)
@@ -412,7 +419,7 @@ def main():
     status = "중단" if aborted else "완료"
     print(f"\n=== {status}: {'합격' if args.check else '기록'} {accepted}/{args.reps}회, 시도 {attempt}회, {len(all_rows)}샘플 -> {fname} ===")
     if rep_summary:
-        print(f"회차별 통계 -> {args.subject}_{args.gesture}_reps.csv")
+        print(f"회차별 통계 -> {sum_fname}")
     if raw_rows and not args.no_filter:
         dropped = len(raw_rows) - len(all_rows)
         print(f"필터로 뺀 샘플 {dropped}개 ({dropped/len(raw_rows)*100:.0f}%), 필터 전 전체 -> {raw_fname}")
