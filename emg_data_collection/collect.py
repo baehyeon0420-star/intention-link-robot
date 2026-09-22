@@ -18,14 +18,23 @@ EMG 원시 신호 수집.
 않는다. 걸러내기 전 전체 샘플은 raw/{subject}_{gesture}_raw.csv 에 그대로 남긴다
 (무엇을 뺐는지 항상 확인 가능). 판정도 걸러낸 파형의 중앙값으로 한다.
 
+판정은 절대 높이를 쓰지 않는다(2026-09-22 저녁): 같은 동작도 사람마다 진폭이 2배 넘게
+다르다(s2 2,599 vs s3 1,108). 그래서 grip 류는 시작할 때 그 사람의 "최대한 세게" 기준
+쥐기(MVC) 를 한 번 받고, 회차는 자기 MVC 대비 비율과 파형 모양으로만 판정한다.
+기준 쥐기는 {subject}_mvc.csv 에 저장한다(%MVC 정규화용).
+
 grip 류 검사 기준(각 회차 끝날 때, 0·4095 제외한 파형 기준):
   - 유효 샘플이 전체의 --min-valid(20%) 미만이면 불합격 (파형이 거의 없음)
-  - 중앙값 >= rest 중앙값 + rest 표준편차 x --sep-std, 그리고 중앙값 >= --min-mean
-  - 마지막 0.5초 중앙값 >= 첫 0.5초 중앙값 x 0.5  (회차 안에서 신호가 빠짐)
-  - 중앙값 >= 이미 합격한 회차 중앙값 x 0.4  (s3식 붕괴)
+  - 유효 파형 표준편차 < 20 이면 불합격 (살아있는 EMG 가 아니라 고정 전압)
+  - 중앙값 < 자기 MVC 중앙값 x --min-ratio(0.3) 이면 불합격 (자기 기준 대비 안 쥔 것)
+  - 중앙값 < rest 중앙값 + MAD x --sep-std 이면 불합격 (rest 가 0에 붙어 있으면 자동 무시)
+  - 마지막 0.5초 중앙값 < 첫 0.5초 중앙값 x 0.5 이면 불합격 (회차 안에서 신호가 빠짐)
+  - 중앙값 < 이미 합격한 회차 중앙값 x 0.4 이면 불합격 (s3식 붕괴)
+  - --min-mean 은 기본 0(끔). 절대 하한이 꼭 필요할 때만 켠다
+기준 쥐기(MVC) 검사: 유효 50% 이상, 표준편차 20 이상, 앞뒤 반토막 아님. 될 때까지 다시 받음
 rest 검사 기준(4095 만 제외, 0은 실제 기준선이라 남김):
-  - 중앙값 < --min-mean 의 절반  (수축이 섞여 중앙값까지 올라오면 불합격)
-  - --min-mean 초과 샘플 < 5%   (1~2초짜리 지속 수축 차단. 순간 스파이크는 5% 까지 허용)
+  - 중앙값 < MVC 가 없으므로 절대값 사용: --rest-max(300) 미만
+  - --rest-max 초과 샘플 < 5%   (1~2초짜리 지속 수축 차단. 순간 스파이크는 5% 까지 허용)
 
 사용 예:
   # 휴식 데이터 (한 번에 길게 받아도 됨 - 힘을 안 주니 피로가 없음)
@@ -120,9 +129,14 @@ def parse_args():
     # --- 자동 거부 ---
     p.add_argument("--rest-seconds", type=float, default=5.0,
                    help="grip 류 수집 시작 전 rest 기준선 측정 시간(초). 0이면 기준선 없이 --min-mean 만 사용")
-    p.add_argument("--min-mean", type=float, default=600.0,
-                   help="grip 회차 합격에 필요한 최소 평균(ADC counts). 편한 쥐기 평균의 절반쯤으로, MyoWare 게인 바꾸면 같이 조정 "
-                        "(s5 실패 회차는 최대 449, s1_v5 정상 회차 최소 753)")
+    p.add_argument("--min-mean", type=float, default=0.0,
+                   help="grip 회차 절대 하한(ADC counts). 기본 0 = 안 씀. 사람마다 진폭이 달라 절대값 판정은 하지 않는다")
+    p.add_argument("--min-ratio", type=float, default=0.3,
+                   help="grip 회차 중앙값이 자기 MVC(기준 쥐기) 중앙값의 몇 배 이상이어야 합격인지")
+    p.add_argument("--mvc-seconds", type=float, default=3.0,
+                   help="grip 류 시작 전 '최대한 세게' 기준 쥐기 시간(초). 0이면 생략(--min-mean 필요)")
+    p.add_argument("--rest-max", type=float, default=300.0,
+                   help="rest 수집 합격 기준: 중앙값이 이 값 미만, 이 값 초과 샘플이 5%% 미만")
     p.add_argument("--sep-std", type=float, default=5.0,
                    help="grip 평균이 rest 중앙값보다 rest 표준편차의 몇 배 이상 커야 합격인지")
     p.add_argument("--max-fail", type=int, default=0,
@@ -148,27 +162,46 @@ def _edge_medians(values, hz_guess=500, edge_sec=0.5):
     return statistics.median(values[:n]), statistics.median(values[-n:])
 
 
-def check_rep(valid, valid_pct, args, rest_med, rest_std, accepted_meds):
-    """(합격 여부, 사유). valid 는 이미 0·4095 를 뺀 파형."""
+def check_mvc(valid, valid_pct):
+    """기준 쥐기(MVC) 가 쓸 만한지. 높이는 안 본다 — 살아 있고 3초 유지됐는지만."""
+    if not valid:
+        return False, "유효 파형 없음 (전부 0 또는 4095)"
+    if valid_pct < 50:
+        return False, f"유효 파형 {valid_pct:.0f}% < 50% (끊김이 많음)"
+    if statistics.pstdev(valid) < 20:
+        return False, f"파형 표준편차 {statistics.pstdev(valid):.0f} < 20 (고정 전압)"
+    head, tail = _edge_medians(valid)
+    if head > 0 and tail < head * 0.5:
+        return False, f"3초 안에 신호 빠짐: 앞 {head:.0f} → 뒤 {tail:.0f}"
+    return True, "ok"
+
+
+def check_rep(valid, valid_pct, args, rest_med, rest_std, mvc_med, accepted_meds):
+    """(합격 여부, 사유). valid 는 이미 0·4095 를 뺀 파형. 절대 높이 기준은 쓰지 않는다."""
     if not valid:
         return False, "유효 파형 없음 (전부 0 또는 4095)"
     med = statistics.median(valid)
 
     if args.gesture == "rest":
-        if med >= args.min_mean * 0.5:
-            return False, f"rest 중앙값 {med:.0f} >= {args.min_mean*0.5:.0f} (수축 섞임)"
-        # 중앙값이 0이어도 1~2초짜리 수축이 섞이면 rest 가 아니다 (18:18 수집 1·2회차: 600 초과 15%).
-        # 순간 스파이크는 5% 까지 봐준다.
-        high = sum(1 for v in valid if v > args.min_mean) / len(valid) * 100
+        if med >= args.rest_max:
+            return False, f"rest 중앙값 {med:.0f} >= {args.rest_max:.0f} (수축 섞임)"
+        high = sum(1 for v in valid if v > args.rest_max) / len(valid) * 100
         if high >= 5:
-            return False, f"rest 중 {args.min_mean:.0f} 초과 샘플 {high:.0f}% >= 5% (지속 수축 섞임)"
+            return False, f"rest 중 {args.rest_max:.0f} 초과 샘플 {high:.0f}% >= 5% (지속 수축 섞임)"
         return True, "ok"
 
     if valid_pct < args.min_valid:
         return False, f"유효 파형 {valid_pct:.0f}% < {args.min_valid:.0f}% (거의 끊김)"
-    if med < args.min_mean:
-        return False, f"중앙값 {med:.0f} < 최소 {args.min_mean:.0f} (rest 수준)"
-    if rest_med is not None:
+    sd = statistics.pstdev(valid) if len(valid) > 1 else 0.0
+    if sd < 20:
+        return False, f"파형 표준편차 {sd:.0f} < 20 (고정 전압, 살아있는 EMG 아님)"
+    if args.min_mean > 0 and med < args.min_mean:
+        return False, f"중앙값 {med:.0f} < 절대 하한 {args.min_mean:.0f}"
+    if mvc_med:
+        need = mvc_med * args.min_ratio
+        if med < need:
+            return False, f"중앙값 {med:.0f} < 자기 MVC {mvc_med:.0f} x {args.min_ratio:.0%} = {need:.0f} (자기 기준 대비 안 쥠)"
+    if rest_med is not None and rest_std > 0:
         need = rest_med + rest_std * args.sep_std
         if med < need:
             return False, f"중앙값 {med:.0f} < rest 기준선 {rest_med:.0f} + {args.sep_std:.0f}σ({need:.0f})"
@@ -213,16 +246,49 @@ def main():
             # 표준편차는 스파이크 몇 개에 수천까지 뛰어 기준선이 ADC 상한을 넘는 일이 있었다
             # (18:30 수집: 중앙값 0, σ 1650 → 기준 8248). 스파이크에 안 흔들리는 MAD 로 잡는다.
             rest_std = 1.4826 * statistics.median(abs(v - rest_med) for v in rv)
-            high = sum(1 for v in rv if v > args.min_mean) / len(rv) * 100
+            high = sum(1 for v in rv if v > args.rest_max) / len(rv) * 100
             print(f"   rest 중앙값={rest_med:.0f}, 산포(MAD)={rest_std:.0f}, 0값={sum(1 for v in rv if v == 0)/len(rv)*100:.0f}%, "
-                  f"{args.min_mean:.0f} 초과={high:.0f}%")
+                  f"{args.rest_max:.0f} 초과={high:.0f}%")
             if rest_std == 0:
-                print("   (rest 가 0에 붙어 있어 σ 기준은 무의미 → --min-mean 만 적용)")
+                print("   (rest 가 0에 붙어 있어 σ 기준은 무의미 → MVC 비율로만 판정)")
             if high >= 5:
-                print(f"   ⚠️ 기준선 측정 중 {args.min_mean:.0f} 초과가 {high:.0f}% — 힘이 들어가 있거나 접촉 불안정. σ 기준 끄고 --min-mean 만 적용")
+                print(f"   ⚠️ 기준선 측정 중 {args.rest_max:.0f} 초과가 {high:.0f}% — 힘이 들어가 있거나 접촉 불안정. σ 기준 끔")
                 rest_std = 0.0
         else:
             print("   ⚠ rest 데이터 없음. 연결 확인 필요")
+
+    # --- 기준 쥐기 MVC (grip 류만). 될 때까지 반복 ---
+    mvc_med = None
+    if not args.no_check and args.gesture != "rest" and args.mvc_seconds > 0:
+        mvc_try = 0
+        while True:
+            mvc_try += 1
+            print(f"\n[기준 쥐기] (시도 {mvc_try}) 준비... 신호가 오면 최대한 세게 쥐고 {args.mvc_seconds:.0f}초 유지")
+            for i in range(args.countdown, 0, -1):
+                print(f"   {i}")
+                time.sleep(1)
+            print("   ▶ 최대한 세게!")
+            if args.lead_in > 0:
+                time.sleep(args.lead_in)
+            print(f"   ● 측정 중... ({args.mvc_seconds:.0f}초)")
+            rows, values = pump.capture(args.mvc_seconds)
+            v_rows, v_vals, v_pct = split_valid(rows, values, args.gesture)
+            ok, reason = check_mvc(v_vals, v_pct)
+            if ok:
+                mvc_med = statistics.median(v_vals)
+                print(f"   ✔ 기준 확보  유효 {v_pct:.0f}%, 중앙값={mvc_med:.0f} → 회차 합격선 {mvc_med*args.min_ratio:.0f}")
+                mvc_fname = f"{args.subject}_mvc.csv"
+                with open(mvc_fname, "a", newline="") as f:
+                    w = csv.writer(f)
+                    if f.tell() == 0:
+                        w.writerow(["t_ms", "raw", "subject", "gesture"])
+                    w.writerows([r + [args.subject, "mvc"] for r in v_rows])
+                print(f"      → {mvc_fname} 저장")
+                break
+            print(f"   ✘ 다시  유효 {v_pct:.0f}%  사유: {reason}")
+            print("      전극 눌러 붙이고, 손목 곧게 편 채로 다시 쥐세요.")
+            if args.rest_between > 0:
+                time.sleep(args.rest_between)
 
     print(f"\n=== {args.subject} / {args.gesture} : {args.seconds:.0f}초 x {args.reps}회"
           f"{' (자동 거부 꺼짐)' if args.no_check else ''} ===")
@@ -254,7 +320,7 @@ def main():
             if args.no_check:
                 ok, reason = (bool(v_vals), "ok" if v_vals else "수신 데이터 없음")
             else:
-                ok, reason = check_rep(v_vals, v_pct, args, rest_med, rest_std, rep_means)
+                ok, reason = check_rep(v_vals, v_pct, args, rest_med, rest_std, mvc_med, rep_means)
 
             med = statistics.median(v_vals) if v_vals else 0.0
             info = f"{len(values)}샘플 중 유효 {v_pct:.0f}%, 중앙값={med:.0f}"
