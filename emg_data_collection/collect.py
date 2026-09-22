@@ -261,34 +261,46 @@ def main():
     mvc_med = None
     if not args.no_check and args.gesture != "rest" and args.mvc_seconds > 0:
         mvc_try = 0
-        while True:
-            mvc_try += 1
-            print(f"\n[기준 쥐기] (시도 {mvc_try}) 준비... 신호가 오면 최대한 세게 쥐고 {args.mvc_seconds:.0f}초 유지")
-            for i in range(args.countdown, 0, -1):
-                print(f"   {i}")
-                time.sleep(1)
-            print("   ▶ 최대한 세게!")
-            if args.lead_in > 0:
-                time.sleep(args.lead_in)
-            print(f"   ● 측정 중... ({args.mvc_seconds:.0f}초)")
-            rows, values = pump.capture(args.mvc_seconds)
-            v_rows, v_vals, v_pct = split_valid(rows, values, args.gesture)
-            ok, reason = check_mvc(v_vals, v_pct)
-            if ok:
-                mvc_med = statistics.median(v_vals)
-                print(f"   ✔ 기준 확보  유효 {v_pct:.0f}%, 중앙값={mvc_med:.0f} → 회차 합격선 {mvc_med*args.min_ratio:.0f}")
-                mvc_fname = f"{args.subject}_mvc.csv"
-                with open(mvc_fname, "a", newline="") as f:
+        try:
+            while True:
+                mvc_try += 1
+                print(f"\n[기준 쥐기] (시도 {mvc_try}) 준비... 신호가 오면 최대한 세게 쥐고 {args.mvc_seconds:.0f}초 유지")
+                for i in range(args.countdown, 0, -1):
+                    print(f"   {i}")
+                    time.sleep(1)
+                print("   ▶ 최대한 세게!")
+                if args.lead_in > 0:
+                    time.sleep(args.lead_in)
+                print(f"   ● 측정 중... ({args.mvc_seconds:.0f}초)")
+                rows, values = pump.capture(args.mvc_seconds)
+                v_rows, v_vals, v_pct = split_valid(rows, values, args.gesture)
+                ok, reason = check_mvc(v_vals, v_pct)
+                # 합격/불합격 상관없이 기준 쥐기 시도는 전부 raw/ 에 남긴다 (파형 분석용. 19:00 시도 7회가 안 남아 있었음)
+                os.makedirs(raw_dir, exist_ok=True)
+                mvc_raw = os.path.join(raw_dir, f"{args.subject}_mvc_attempts_raw.csv")
+                with open(mvc_raw, "a", newline="") as f:
                     w = csv.writer(f)
                     if f.tell() == 0:
-                        w.writerow(["t_ms", "raw", "subject", "gesture"])
-                    w.writerows([r + [args.subject, "mvc"] for r in v_rows])
-                print(f"      → {mvc_fname} 저장")
-                break
-            print(f"   ✘ 다시  유효 {v_pct:.0f}%  사유: {reason}")
-            print("      전극 눌러 붙이고, 손목 곧게 편 채로 다시 쥐세요.")
-            if args.rest_between > 0:
-                time.sleep(args.rest_between)
+                        w.writerow(["t_ms", "raw", "subject", "gesture", "attempt", "result"])
+                    w.writerows([r + [args.subject, "mvc", mvc_try, "ok" if ok else reason] for r in rows])
+                if ok:
+                    mvc_med = statistics.median(v_vals)
+                    print(f"   ✔ 기준 확보  유효 {v_pct:.0f}%, 중앙값={mvc_med:.0f} → 회차 합격선 {mvc_med*args.min_ratio:.0f}")
+                    mvc_fname = f"{args.subject}_mvc.csv"
+                    with open(mvc_fname, "a", newline="") as f:
+                        w = csv.writer(f)
+                        if f.tell() == 0:
+                            w.writerow(["t_ms", "raw", "subject", "gesture"])
+                        w.writerows([r + [args.subject, "mvc"] for r in v_rows])
+                    print(f"      → {mvc_fname} 저장")
+                    break
+                print(f"   ✘ 다시  유효 {v_pct:.0f}%  사유: {reason}")
+                print("      전극 눌러 붙이고, 손목 곧게 편 채로 다시 쥐세요.")
+                if args.rest_between > 0:
+                    time.sleep(args.rest_between)
+        except KeyboardInterrupt:
+            print(f"\n   ⏹ Ctrl+C — 기준 쥐기 {mvc_try}회 시도 파형은 {mvc_raw if mvc_try else '(없음)'} 에 있음. 종료합니다.")
+            pump.stop(); ser.close(); return
 
     print(f"\n=== {args.subject} / {args.gesture} : {args.seconds:.0f}초 x {args.reps}회"
           f"{' (자동 거부 꺼짐)' if args.no_check else ''} ===")
