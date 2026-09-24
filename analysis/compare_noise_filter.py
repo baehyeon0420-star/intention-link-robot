@@ -7,7 +7,7 @@ collect.py 는 0(ADC 바닥 = 접촉 끊김)과 4095(포화) 를 뺀 본 CSV 와
 
 사용법 (저장소 루트에서):
   python3 analysis/compare_noise_filter.py                 # n1 n6 n7
-  python3 analysis/compare_noise_filter.py n6 --k 0.7 --md analysis/out/compare_noise_filter.md
+  python3 analysis/compare_noise_filter.py n2 --k 0.7 --md analysis/out/compare_noise_filter.md
 """
 
 import argparse
@@ -21,7 +21,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "analysis"))
 import compare_thresholds as ct  # noqa: E402
 
-DEFAULT_SUBJECTS = ["n1", "n6", "n7"]
+DEFAULT_SUBJECTS = ["n1", "n2", "n3"]
 
 
 def load_rest_raw(path):
