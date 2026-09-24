@@ -21,7 +21,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "analysis"))
 import compare_thresholds as ct  # noqa: E402
 
-DEFAULT_SUBJECTS = ["n1", "n2", "n3", "n4", "n5"]
+DEFAULT_SUBJECTS = ["n1", "n2", "n3", "n4", "n5", "n6"]
 
 
 def load_rest_raw(path):

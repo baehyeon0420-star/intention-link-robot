@@ -53,6 +53,7 @@ SUBJECTS = [
     ("n3", "n3_rest.csv", "n3_grip.csv", "n3_light.csv"),
     ("n4", "n4_rest.csv", "n4_grip.csv", "n4_light.csv"),
     ("n5", "n5_rest.csv", "n5_grip.csv", "n5_light.csv"),
+    ("n6", "n6_rest.csv", "n6_grip.csv", "n6_light.csv"),
 ]
 
 
