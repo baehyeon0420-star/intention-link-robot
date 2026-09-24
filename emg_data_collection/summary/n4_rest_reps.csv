@@ -1,0 +1,2 @@
+subject,gesture,rep,attempt,n_samples,valid_pct,median,q25,q75,head_med,tail_med,std,mvc_median,rest_median
+n4,rest,1,1,5006,100.0,969,949,981,671,1008,124.5,,
