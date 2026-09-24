@@ -1,0 +1,2 @@
+subject,gesture,rep,attempt,n_samples,valid_pct,median,q25,q75,head_med,tail_med,std,mvc_median,rest_median
+n7,light,1,1,1505,97.3,3278,3112,3408,2977,3483,457.1,3104,309
