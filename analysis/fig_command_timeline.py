@@ -57,14 +57,14 @@ def main():
     ax[0].plot(t, seq, lw=0.6, color="k")
     ax[0].axvspan(half / FS, (half + len(ev)) / FS, color="#dddddd", alpha=0.5)
     ax[0].set_ylabel("sEMG (ADC)")
-    ax[0].set_title(f"{a.subject}: 편한 쥐기 4회 (회색 구간) 전후 rest", fontsize=10)
-    for axis, y, label in [(ax[1], y_old, "기존 (최대 수축 보정)"), (ax[2], y_new, "제안 (편한 쥐기 보정)")]:
+    ax[0].set_title(f"{a.subject}: rest → 편한 쥐기 4회(회색, 이어붙임) → rest", fontsize=10)
+    for axis, y, label in [(ax[1], y_old, "기존"), (ax[2], y_new, "제안")]:
         axis.step(t, y, where="post", lw=0.9, color="k")
         axis.set_yticks([0, 1, 2]); axis.set_yticklabels(["열림", "반쯤", "닫힘"], fontsize=8)
-        axis.set_ylim(-0.3, 2.3); axis.set_ylabel(label, fontsize=8)
+        axis.set_ylim(-0.3, 2.6); axis.set_ylabel(label, fontsize=9)
         sw = int((y[1:] != y[:-1]).sum())
         closed = (y[half:half + len(ev)] == 2).mean() * 100
-        axis.text(0.99, 0.85, f"쥐기 구간 닫힘 {closed:.0f}%, 전환 {sw}회", ha="right", va="top", transform=axis.transAxes, fontsize=8)
+        axis.text(0.01, 0.97, f"{label}: 쥐기 구간 닫힘 {closed:.0f}%, 명령 전환 {sw}회", ha="left", va="top", transform=axis.transAxes, fontsize=8, bbox=dict(fc="white", ec="none", alpha=0.8))
     ax[2].set_xlabel("time (s)")
     fig.tight_layout()
     out = a.out or os.path.join(ROOT, "analysis", "out", f"fig1_timeline_{a.subject}.png")
