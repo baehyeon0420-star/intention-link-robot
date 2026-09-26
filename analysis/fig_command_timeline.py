@@ -53,20 +53,25 @@ def main():
     font = pick_font()
     if font: plt.rcParams["font.family"] = font
     plt.rcParams["axes.unicode_minus"] = False
-    fig, ax = plt.subplots(3, 1, figsize=(7.0, 4.2), sharex=True, gridspec_kw={"height_ratios": [2, 1, 1]})
-    ax[0].plot(t, seq, lw=0.6, color="k")
-    ax[0].axvspan(half / FS, (half + len(ev)) / FS, color="#dddddd", alpha=0.5)
+    # 85mm 단 폭에 원본 크기로 들어가도록 3.35in 폭, 글자 8pt 이상
+    plt.rcParams.update({"font.size": 8, "axes.titlesize": 8, "axes.labelsize": 8, "xtick.labelsize": 7.5, "ytick.labelsize": 7.5})
+    fig, ax = plt.subplots(3, 1, figsize=(3.35, 2.7), sharex=True, gridspec_kw={"height_ratios": [1.6, 1, 1]})
+    ax[0].plot(t, seq, lw=0.4, color="k")
+    ax[0].axvspan(half / FS, (half + len(ev)) / FS, color="#dddddd", alpha=0.6)
     ax[0].set_ylabel("sEMG (ADC)")
-    ax[0].set_title(f"{a.subject}: rest → 편한 쥐기 4회(회색, 이어붙임) → rest", fontsize=10)
+    ax[0].set_title(f"{a.subject}: rest → 준최대 수축 4회(회색) → rest")
+    ev_slice = slice(half, half + len(ev))
     for axis, y, label in [(ax[1], y_old, "기존"), (ax[2], y_new, "제안")]:
-        axis.step(t, y, where="post", lw=0.9, color="k")
-        axis.set_yticks([0, 1, 2]); axis.set_yticklabels(["열림", "반쯤", "닫힘"], fontsize=8)
-        axis.set_ylim(-0.3, 2.6); axis.set_ylabel(label, fontsize=9)
-        sw = int((y[1:] != y[:-1]).sum())
-        closed = (y[half:half + len(ev)] == 2).mean() * 100
-        axis.text(0.01, 0.97, f"{label}: 쥐기 구간 닫힘 {closed:.0f}%, 명령 전환 {sw}회", ha="left", va="top", transform=axis.transAxes, fontsize=8, bbox=dict(fc="white", ec="none", alpha=0.8))
+        axis.step(t, y, where="post", lw=0.7, color="k")
+        axis.set_yticks([0, 1, 2]); axis.set_yticklabels(["열림", "반쯤", "닫힘"])
+        axis.set_ylim(-0.3, 2.9); axis.set_ylabel(label)
+        ye = y[ev_slice]
+        sw = int((ye[1:] != ye[:-1]).sum())            # 표 2와 동일: 평가 구간 안의 명령 전환만
+        closed = (ye == 2).mean() * 100
+        axis.text(0.01, 0.97, f"수축 구간 닫힘 {closed:.1f}%, 전환 {sw}회", ha="left", va="top",
+                  transform=axis.transAxes, fontsize=8, bbox=dict(fc="white", ec="none", alpha=0.85, pad=1))
     ax[2].set_xlabel("time (s)")
-    fig.tight_layout()
+    fig.tight_layout(pad=0.3)
     out = a.out or os.path.join(ROOT, "analysis", "out", f"fig1_timeline_{a.subject}.png")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     fig.savefig(out, dpi=300)
