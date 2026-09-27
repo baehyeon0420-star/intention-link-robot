@@ -14,8 +14,27 @@ class RobotCommand(Enum):
     GRIP_CLOSE = "GripClose"
 
 
+class GripLatch:
+    """로봇 명령 2상태 경로 (2026-09-22).
+
+    STRONG/GRIP → GripClose, REST → Release, LIGHT → 이전 명령 유지 (Hold 로 보내지 않음).
+    serial_reader 의 히스테리시스와 합쳐져서: 편한 쥐기의 70%에서 쥐고, 30%(0.7x0.43) 아래로 떨어질 때까지 유지.
+    """
+
+    def __init__(self):
+        self.command = RobotCommand.RELEASE
+
+    def update(self, threshold_state):
+        if threshold_state in ("STRONG", "GRIP"):
+            self.command = RobotCommand.GRIP_CLOSE
+        elif threshold_state == "REST":
+            self.command = RobotCommand.RELEASE
+        # LIGHT: 유지
+        return self.command
+
+
 def map_to_robot_command(threshold_state):
-    """RobotCommandMapper.cs와 동일한 매핑.
+    """RobotCommandMapper.cs와 동일한 매핑. (4단계 상태 기반, 지금은 디버그/비교용)
 
     REST   -> Release
     LIGHT  -> Hold

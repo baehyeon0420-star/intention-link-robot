@@ -2,7 +2,7 @@
 하이브리드 데모: 손이 카메라에 보이면 카메라로, 안 보이면 EMG로 로봇손 제어.
 
   카메라 보임  → 손가락 4개 굽힘값 → 로봇 손가락별 제어 (set_fingers)
-  카메라 안 보임 → EMG 임계값 상태(REST/LIGHT/STRONG/GRIP) → 로봇 전체 쥐기 정도
+  카메라 안 보임 → EMG 2상태(GripLatch: 편한 쥐기의 65%에서 쥐고 28%까지 유지, LIGHT 는 이전 유지) → 로봇 전체 쥐기/펴기
 
 전환은 떨림 방지를 위해 몇 프레임 연속으로 확인된 뒤에만 일어난다.
 서보 명령은 변화가 있을 때만, 초당 send_hz 회 이하로만 보낸다.
@@ -10,7 +10,7 @@
 실행 순서:
   1) 전극 부착, ESP32·AmazingHand 연결
   2) python3 hybrid_demo.py --port /dev/cu.usbserial-110 --hand-port /dev/cu.usbmodem5B790178941
-  3) 터미널 안내대로 EMG 캘리브레이션 (힘 빼기 3초 → 세게 쥐기 3초)
+  3) 터미널 안내대로 EMG 캘리브레이션 (힘 빼기 3초 → 물건 집듯이 편하게 쥐기 3초)
   4) 카메라 창이 뜨면 손 보여주기 → 손 숨기고 주먹 쥐기 → 다시 보여주기
   5) q 종료 (토크 해제)
 """
@@ -27,13 +27,13 @@ from mediapipe.tasks.python import BaseOptions, vision
 
 from emg_pipeline.amazinghand_driver import AmazingHandDriver
 from emg_pipeline.calibration import auto_calibrate
+from emg_pipeline.command_mapper import GripLatch, RobotCommand
 from emg_pipeline.serial_reader import EMGSerialReader
 
 MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
 MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "emg_data_collection", "hand_landmarker.task")
 FINGERS = {"index": (5, 6, 7, 8), "middle": (9, 10, 11, 12), "ring": (13, 14, 15, 16), "pinky": (17, 18, 19, 20)}
-# EMG 상태 → 전체 손 쥐기 비율 (검증된 3자세: 펴짐 / 중간 / 접힘)
-EMG_RATIO = {"REST": 0.0, "LIGHT": 0.5, "STRONG": 1.0, "GRIP": 1.0}
+# (2026-09-22) EMG 모드는 GripLatch 2상태(Release/GripClose)로 전체 쥐기/펴기. 4단계 EMG_RATIO 는 더 이상 안 씀.
 
 
 def parse_args():
@@ -91,8 +91,7 @@ def main():
     reader.start()
     print(f"[emg] 연결: {args.port}")
     time.sleep(0.5)
-    rb, mc = auto_calibrate(reader, seconds=args.calibrate_seconds)
-    reader.rest_baseline, reader.max_contraction = rb, mc
+    reader.rest_baseline, reader.ref_contraction = auto_calibrate(reader, seconds=args.calibrate_seconds)
 
     # 2) 로봇
     hand = AmazingHandDriver(port=args.hand_port)
@@ -109,6 +108,7 @@ def main():
         print("카메라를 열 수 없습니다"); hand.shutdown(); reader.stop(); return
     print("\n손을 보여주면 CAMERA, 숨기면 EMG. q로 종료.\n")
 
+    latch = GripLatch()
     source = "EMG"           # 시작은 EMG (손이 아직 안 보이니까)
     seen, lost = 0, 0
     t0 = time.monotonic(); last_send = 0.0; interval = 1.0 / args.send_hz
@@ -149,9 +149,10 @@ def main():
                     cv2.putText(frame, f"{n:6s} {c:.2f} {'#' * int(c * 20)}", (10, y),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2); y += 25
             elif source == "EMG":
-                r = EMG_RATIO.get(reader.current_state, 0.0)
+                cmd = latch.update(reader.current_state)
+                r = 1.0 if cmd == RobotCommand.GRIP_CLOSE else 0.0
                 ratios = {"A": r, "B": r, "C": r, "D": r}
-                cv2.putText(frame, f"EMG state={reader.current_state}  norm={reader.current_normalized:.2f}  raw={reader.current_value}",
+                cv2.putText(frame, f"EMG {cmd.value}  state={reader.current_state}  norm={reader.current_normalized:.2f}  raw={reader.current_value}",
                             (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
 
             if ratios is not None and now - last_send >= interval:

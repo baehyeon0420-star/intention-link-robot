@@ -19,7 +19,9 @@
 | `RobotArmController.cs` | `emg_pipeline/robot_controller.py` + `emg_pipeline/amazinghand_driver.py` | 로봇 명령 실행. 실제 하드웨어는 [AmazingHand](https://github.com/pollen-robotics/AmazingHand)(Feetech SCS0009 x8, rustypot)로 연결됨 |
 | `emg_data_collection/train.py`가 만든 `final_model.npz` | `final_model.npz` (원본에서 복사) | 학습된 스케일러/로지스틱회귀 계수 |
 
-**중요**: 원본과 마찬가지로 실제 로봇 명령은 **threshold 기반 상태**로 내려지고, ML 분류기(`final_model.npz`)는 화면에 나란히 출력만 되는 비교/디버그용임 (`EMGMLClassifier.cs`가 Unity에서 하던 것과 동일).
+**중요**: 실제 로봇 명령은 **2상태**(`GripLatch`: STRONG/GRIP→GripClose, REST→Release, LIGHT→이전 명령 유지)로 내려짐 (2026-09-22). 4단계 threshold 상태와 ML 분류기(`final_model.npz`)는 화면에 나란히 출력만 되는 비교/디버그용임.
+
+**보정 기준 (2026-09-22 변경)**: norm=1.0 은 "최대한 세게 쥔 값"이 아니라 **"물건 집듯이 편하게 쥔 값"**(`--ref-contraction`)임. 보정 안내도 "편하게 쥐세요"로 바뀜. 세게 쥘 필요 없이 편한 세기의 70%(`--threshold-strong`, 2026-09-27 0.65→0.7)에서 쥐고, 거의 다 힘을 뺄 때까지(REST) 유지한다.
 
 ## 하드웨어 연결
 
@@ -45,8 +47,11 @@ USB-TTL 시리얼 버스 드라이버로 연결 (ESP32와는 **별도의 USB 포
 pip install -r requirements.txt
 
 # 매번 전극 접촉 상태가 달라지므로 --calibrate로 자동 보정 추천
-# (시작하면 "힘 빼기" -> "최대한 세게 쥐기" 순서로 안내가 뜸)
+# (시작하면 "힘 빼기 3초" -> "물건 집듯이 편하게 쥐기 3초" 순서로 안내가 뜸, 결과는 calibration.json 저장)
 python main.py --port /dev/cu.usbserial-XXXX --calibrate
+
+# 같은 전극 상태에서 다시 실행할 때만: 저장된 보정값 재사용
+python main.py --port /dev/cu.usbserial-XXXX --use-saved
 
 # EMG + AmazingHand 실제 구동
 python main.py --port /dev/cu.usbserial-XXXX --calibrate --hand-port /dev/cu.usbmodemXXXX
@@ -58,18 +63,35 @@ python main.py --port /dev/cu.usbserial-XXXX --calibrate --hand-port /dev/cu.usb
 |---|---|---|
 | `--port` | (필수) | ESP32(EMG) 시리얼 포트 |
 | `--baud` | 115200 | ESP32 `Serial.begin()`과 동일하게 |
-| `--rest-baseline` | 18 | 힘 뺀 상태(rest) raw 평균값. `--calibrate` 쓰면 무시되고 자동 측정됨 |
-| `--max-contraction` | 1321 | 최대 수축(grip) raw 평균값. `--calibrate` 쓰면 무시되고 자동 측정됨 |
-| `--calibrate` | 꺼짐 | 시작할 때 REST 3초 + 최대수축 3초 측정해서 위 두 값을 자동으로 잡음(최대수축은 순간 최고치가 아니라 중앙값). 전극 상태가 매번 달라지므로 추천 |
+| `--rest-baseline` | 18 | 힘 뺀 상태 raw 중앙값. 임시 기본값 — `--calibrate` 로 재보정 |
+| `--ref-contraction` | 400 | 편하게 쥔 raw 중앙값 (norm=1.0). 임시 기본값 — `--calibrate` 로 재보정 |
+| `--max-contraction` | (없음) | 구버전 옵션. 주면 `--ref-contraction` 으로 취급 |
+| `--threshold-strong` | 0.65 | 쥐기 진입 기준 (편한 쥐기 대비 비율). `analysis/compare_thresholds.py` 로 재조정 |
+| `--threshold-light` | 0.2 | LIGHT 진입 기준. LIGHT 에서는 이전 명령 유지 |
+| `--release-ratio` | 0.43 | 상태 하강 기준 = threshold × 이 값 (히스테리시스) |
+| `--calibrate` | 꺼짐 | 시작할 때 힘 빼기 3초 + 편하게 쥐기 3초를 측정해 rest/ref 를 중앙값으로 잡고 `calibration.json` 에 저장. 상승폭이 rest 잡음의 3배 미만이면 전극 확인 경고 후 재시도 |
+| `--use-saved` | 꺼짐 | `calibration.json` 의 보정값 재사용. 전극을 다시 붙였다면 쓰지 말 것 |
 | `--calibrate-seconds` | 3.0 | 캘리브레이션 각 단계 측정 시간(초) |
 | `--model` | `final_model.npz` | 학습된 모델 파일 경로 |
 | `--interval` | 0.05 | 메인 루프 주기(초) |
 | `--hand-port` | (없음) | AmazingHand용 USB-TTL 포트. 안 주면 콘솔 출력만 하고 손은 안 움직임 |
 | `--smoothing` | 0.02 | EMG 평활 강도. 500Hz에서 시간상수 약 100ms |
 
+## 오프라인 분석
+
+```bash
+# 보정 방식 비교 (피크x0.9 vs 중앙값+히스테리시스, 4단계 경로)
+cd emg_data_collection && python3 calibration_compare.py --min-rep-ratio 0.4 --rest-window-max 500
+
+# 판정 기준 비교 (A 고정 / B 편한 쥐기 보정 / C 최대 수축 보정, k 0.3~0.9 스캔, 2상태 래치 경로)
+python3 analysis/compare_thresholds.py --min-rep-ratio 0.4 --k 0.7   # → analysis/out/ 에 md 표·csv·png
+```
+피험자 데이터는 `collect.py` 로 rest / grip / light 를 받는다 (light = "물건 집듯이 편하게" 3초x6회).
+
 ## 아직 안 된 것 / 다음 단계
 
 - **HOLD 동작 다듬기**: 지금은 Release/GripClose 각도의 단순 중간값(`amazinghand_driver.py`의 `HOLD_DEG`). 실제로 써보고 조정 필요
+- **판정 기준(k) 확정**: 편한 쥐기 기준 0.7/0.4 는 초기값. `analysis/compare_thresholds.py` 로 피험자 데이터에서 k 를 정할 것
 - **XR 상호작용**: `ContractionPatternDetector`(Short/Long/Double)는 이식만 해두고 실제로 연결한 곳은 없음. Unity의 XR 상호작용 기능은 이 프로젝트 범위 밖
 - **무선화**: 지금은 여전히 유선 시리얼. 최종 목표(전완근 착용형 무선 유닛)를 위해서는 ESP32 → BLE/ESP-NOW 무선 전송으로 교체 필요 (그러면 이 파이썬 스크립트가 받는 지점도 시리얼 대신 BLE 수신으로 바뀌어야 함)
 

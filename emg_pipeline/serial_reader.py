@@ -3,7 +3,9 @@ ESP32로부터 EMG 원시 신호를 시리얼로 읽어들이는 백그라운드
 
 intention-link(Unity)의 EMGSerialReader.cs를 그대로 이식함:
   - "t_ms,raw" 또는 "raw" 단독 형식 모두 허용 (collect.py와 동일 포맷)
-  - restBaseline~maxContraction 구간으로 0~1 정규화
+  - restBaseline~refContraction 구간으로 정규화 (0 = 힘 뺌, 1 = 보정 때 편하게 쥔 세기, 그 이상도 허용)
+  - (2026-09-22) 기준을 "세게 쥐기"에서 "편한 쥐기"(ref_contraction)로 교체. threshold_strong 0.35 → 0.65.
+    로봇 명령은 command_mapper.GripLatch 가 STRONG/GRIP→GripClose, REST→Release, LIGHT→이전 명령 유지로 만든다.
   - thresholdLight/Strong/Grip 기준으로 REST/LIGHT/STRONG/GRIP 상태 분류
     (올라갈 땐 threshold, 내려갈 땐 threshold x release_ratio 밑으로 떨어져야 함 — 히스테리시스)
   - ML 분류기(ml_classifier.py)가 쓰는 최근 20샘플(200ms) 윈도우 유지
@@ -26,9 +28,10 @@ class EMGSerialReader:
         port,
         baud_rate=115200,
         rest_baseline=18,
-        max_contraction=1321,
+        ref_contraction=400,
+        max_contraction=None,   # 구버전 호환용 별칭 (주면 ref_contraction으로 씀)
         threshold_light=0.2,
-        threshold_strong=0.35,
+        threshold_strong=0.7,
         threshold_grip=0.7,
         release_ratio=0.43,
         smoothing_alpha=0.02,
@@ -36,10 +39,14 @@ class EMGSerialReader:
         self.port_name = port
         self.baud_rate = baud_rate
         self.rest_baseline = rest_baseline
-        self.max_contraction = max_contraction
+        # ref_contraction: 보정 때 "물건 집듯이 편하게" 쥔 raw 중앙값. 기본값은 임시이므로 반드시 --calibrate로 재보정.
+        self.ref_contraction = ref_contraction if max_contraction is None else max_contraction
         self.threshold_light = threshold_light
         self.threshold_strong = threshold_strong
         self.threshold_grip = threshold_grip
+        # (2026-09-27) threshold_strong 0.65 → 0.7 (논문 표기·compare_thresholds k와 통일. 0.3~0.9에서 판정률 평탄, rest 여유를 위해 0.7).
+        # (2026-09-22) threshold_strong 0.35 → 0.65: 기준(ref)이 "세게"가 아니라 "편하게 쥔 값"이 되면서
+        # 그 65%에서 쥐기. 히스테리시스(release_ratio 0.43)로 0.28까지는 쥔 채 유지. 값은 analysis/compare_thresholds.py 로 재조정.
         # (2026-09-21) threshold_light 0.1 → 0.2: 로봇 연결 상태 실측(run.log)에서 힘을 뺀 채로도
         # 신호가 튀어 0.1을 넘으면서 Release↔Hold(절반 오므림)가 25초에 수십 번 오갔음.
         # (2026-09-21) 한 번 올라간 상태는 threshold x release_ratio 밑으로 떨어져야 내려간다.
@@ -133,11 +140,21 @@ class EMGSerialReader:
             self.current_state = state
             self._window.append(value)  # ML 특징추출용 윈도우는 raw 유지
 
+    @property
+    def max_contraction(self):
+        """구버전 호환 별칭."""
+        return self.ref_contraction
+
+    @max_contraction.setter
+    def max_contraction(self, v):
+        self.ref_contraction = v
+
     def _normalize(self, value):
-        span = self.max_contraction - self.rest_baseline
+        span = self.ref_contraction - self.rest_baseline
         if span <= 0:
             return 0.0
-        return min(1.0, max(0.0, (value - self.rest_baseline) / span))
+        # 위쪽은 자르지 않는다: 편한 쥐기(=1.0)보다 세게 쥐면 1.x 로 나옴. 표시 안정용으로 3.0에서만 자름.
+        return min(3.0, max(0.0, (value - self.rest_baseline) / span))
 
     def _thresholds(self):
         return {"LIGHT": self.threshold_light, "STRONG": self.threshold_strong, "GRIP": self.threshold_grip}
