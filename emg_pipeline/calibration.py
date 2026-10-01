@@ -25,47 +25,75 @@ CALIBRATION_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 MIN_SEPARATION_STD = 3   # (ref - rest) 가 rest 표준편차의 이 배수 미만이면 전극 접촉 불량 (sensor_check.py 와 같은 기준)
 
 
-def _collect(reader, seconds):
+def _countdown(n, msg):
+    print(f"\n{msg}")
+    for i in range(n, 0, -1):
+        print(f"   {i}", flush=True)
+        time.sleep(1.0)
+
+
+def _collect(reader, seconds, label="측정 중"):
+    """seconds 동안 샘플을 모으면서 남은 시간과 현재값을 같은 줄에 보여준다."""
     samples = []
     t0 = time.monotonic()
-    while time.monotonic() - t0 < seconds:
+    last = -1
+    while True:
+        elapsed = time.monotonic() - t0
+        if elapsed >= seconds:
+            break
         samples.append(reader.current_value)
+        remain = int(seconds - elapsed) + 1
+        if remain != last:
+            last = remain
+            bar = "█" * int((seconds - remain + 1) / seconds * 20)
+            print(f"\r   ● {label}... 남은 {remain}초 |{bar:<20s}| 현재값 {reader.current_value:4d}   ", end="", flush=True)
         time.sleep(0.02)
+    print(f"\r   ✔ {label} 끝                                            ")
     return samples
 
 
-def auto_calibrate(reader, seconds=3.0, retries=2, save_path=CALIBRATION_FILE):
+def auto_calibrate(reader, seconds=3.0, retries=2, save_path=CALIBRATION_FILE, countdown=3, lead_in=1.0):
     """reader가 이미 start()된 상태에서 호출. (rest_baseline, ref_contraction) 반환.
 
     안내 문구에 "세게"를 쓰지 않는다 — 편하게 쥔 세기가 기준이다.
+    (2026-10-01) 단계 표시·카운트다운·남은 시간 표시 추가. 전에는 안내 1초 뒤 바로 측정이 시작돼
+    언제 쥐어야 하는지 알 수 없었고, 쥐기 시작 구간이 측정에 섞였다.
     """
+    print("\n==================== 보정 시작 ====================")
+    print(f" 1단계: 힘 빼고 가만히 {seconds:.0f}초  →  2단계: 편하게 쥐고 {seconds:.0f}초")
+    print(" 편하게 = 컵을 드는 정도. 세게 쥐지 마세요. 그 세기가 기준(1.0)이 됩니다.")
+    print("===================================================")
     for attempt in range(1, retries + 2):
-        print(f"\n[calibrate] 힘을 완전히 빼고 {seconds:.0f}초 유지하세요...")
-        time.sleep(1.0)  # 안내 읽고 준비할 시간
-        rest_samples = _collect(reader, seconds)
+        if attempt > 1:
+            print(f"\n[calibrate] 다시 시도 {attempt - 1}/{retries}. 전극을 한 번 눌러 붙이고 준비하세요.")
+        _countdown(countdown, f"[1/2] 힘을 완전히 빼고 가만히 계세요. {countdown}초 뒤 측정 시작")
+        rest_samples = _collect(reader, seconds, "힘 뺀 상태 측정 중")
         rest_baseline = int(statistics.median(rest_samples))
         rest_std = statistics.pstdev(rest_samples) if len(rest_samples) > 1 else 0.0
-        print(f"[calibrate] REST 중앙값={rest_baseline}, 표준편차={rest_std:.0f}")
+        print(f"   → REST 중앙값={rest_baseline}, 표준편차={rest_std:.0f}")
 
-        print(f"\n[calibrate] 물건을 집듯이 편하게 쥐고 {seconds:.0f}초 유지하세요...")
-        time.sleep(1.0)
-        ref_samples = _collect(reader, seconds)
+        _countdown(countdown, f"[2/2] 신호가 오면 물건 집듯이 편하게 쥐세요. {countdown}초 뒤 신호")
+        print("   ▶ 지금 편하게 쥐세요! (컵 드는 힘, 그대로 유지)", flush=True)
+        time.sleep(lead_in)  # 힘이 올라오는 구간은 측정에 안 넣는다
+        ref_samples = _collect(reader, seconds, "편한 쥐기 측정 중 (그대로 유지)")
+        print("   손에 힘을 빼세요.")
         ref_contraction = int(statistics.median(ref_samples))
-        print(f"[calibrate] 편한 쥐기 중앙값={ref_contraction} (순간 최고={max(ref_samples)})")
+        print(f"   → 편한 쥐기 중앙값={ref_contraction} (순간 최고={max(ref_samples)})")
 
         separation = (ref_contraction - rest_baseline) / max(rest_std, 1)
         if ref_contraction > rest_baseline and separation >= MIN_SEPARATION_STD:
+            print(f"   ✔ 쥐기가 rest 보다 {ref_contraction - rest_baseline} 높음 (잡음의 {separation:.1f}배). 보정 성공.")
             break
         print(
-            f"[calibrate] 경고: 쥐기 상승폭이 rest 잡음의 {separation:.1f}배뿐입니다 (최소 {MIN_SEPARATION_STD}배). "
+            f"   ✘ 쥐기 상승폭이 rest 잡음의 {separation:.1f}배뿐입니다 (최소 {MIN_SEPARATION_STD}배). "
             "전극 접촉(REF 위치, 스냅, 젤 마름)을 확인하세요."
         )
-        if attempt <= retries:
-            print(f"[calibrate] 다시 시도합니다 ({attempt}/{retries})")
     else:
         print("[calibrate] 경고: 재시도 후에도 차이가 작습니다. 이 값으로 진행하지만 판정이 불안정할 수 있습니다.")
 
-    print(f"[calibrate] 완료: rest_baseline={rest_baseline}, ref_contraction={ref_contraction}\n")
+    print(f"\n[calibrate] 완료: rest_baseline={rest_baseline}, ref_contraction={ref_contraction}")
+    print(f"           닫힘 임계 ≈ rest + 0.7×(ref−rest) = {int(rest_baseline + 0.7*(ref_contraction-rest_baseline))}, "
+          f"해제 ≈ {int(rest_baseline + 0.3*(ref_contraction-rest_baseline))}\n")
     if save_path:
         save_calibration(rest_baseline, ref_contraction, save_path)
     return rest_baseline, ref_contraction
