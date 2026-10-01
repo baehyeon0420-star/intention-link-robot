@@ -98,7 +98,11 @@ def main():
     if args.calibrate:
         from emg_pipeline.calibration import auto_calibrate
 
-        reader.rest_baseline, reader.ref_contraction = auto_calibrate(reader, seconds=args.calibrate_seconds)
+        try:
+            reader.rest_baseline, reader.ref_contraction = auto_calibrate(reader, seconds=args.calibrate_seconds)
+        except KeyboardInterrupt:
+            reader.stop()
+            raise SystemExit("\n[main] 보정 중 중단. 종료합니다.")
     elif args.use_saved:
         from emg_pipeline.calibration import load_calibration
 
@@ -146,6 +150,13 @@ def main():
         print("\n[main] 종료합니다.")
     finally:
         reader.stop()
+        # (2026-10-01) 종료 시 손을 편 뒤 토크를 푼다. 전에는 토크만 풀어서 쥔 채로 멈춰 있었음.
+        if hand_driver is not None:
+            try:
+                hand_driver.release()
+                time.sleep(1.0)
+            except Exception as e:
+                print(f"[main] 종료 시 손 펴기 실패: {e}")
         robot.shutdown()
 
 
