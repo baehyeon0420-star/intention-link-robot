@@ -1,12 +1,12 @@
 # intention-link-python
 
-[intention-link](https://github.com/baehyeon0420-star/intention-link)의 실시간 EMG → 로봇팔 제어 파이프라인을 **Unity 없이 파이썬만으로** 재구현한 프로젝트.
+[intention-link](https://github.com/baehyeon0420-star/intention-link)의 실시간 EMG → 로봇팔 제어 파이프라인을 구현한 프로젝트.
 
-## 왜 만들었나
+## 계기
 
 기존 intention-link는 ESP32(MyoWare 2.0 EMG 센서) → 시리얼 → **Unity(C#)**가 신호를 분류하고 로봇팔 명령으로 변환하는 구조였음. 최종 목표(전완근 착용형 무선 EMG 유닛 + 로봇팔 완전 무선 연동)로 가는 과정에서 Unity/노트북 의존을 없애기로 하면서, 같은 로직을 파이썬으로 옮겨 담은 것.
 
-기존 intention-link 저장소의 파일은 **하나도 수정/삭제하지 않았고**, 이 저장소는 완전히 별도의 새 프로젝트임.
+기존 intention-link 저장소의 파일과 이 저장소는 완전히 별도의 새 프로젝트임.
 
 ## 원본(Unity)과의 대응 관계
 
