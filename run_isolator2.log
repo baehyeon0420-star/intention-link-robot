@@ -1,0 +1,40 @@
+[main] 시리얼 연결됨: /dev/cu.usbserial-310 @ 115200bps. Ctrl+C로 종료.
+
+==================== 보정 시작 ====================
+ 1단계: 힘 빼고 가만히 3초  →  2단계: 편하게 쥐고 3초
+ 편하게 = 컵을 드는 정도. 세게 쥐지 마세요. 그 세기가 기준(1.0)이 됩니다.
+===================================================
+
+[1/2] 힘을 완전히 빼고 가만히 계세요. 3초 뒤 측정 시작
+   3
+   2
+   1
+   ● 힘 뺀 상태 측정 중... 남은 3초 |██████              | 현재값  861      ● 힘 뺀 상태 측정 중... 남은 2초 |█████████████       | 현재값  880      ● 힘 뺀 상태 측정 중... 남은 1초 |████████████████████| 현재값  864      ✔ 힘 뺀 상태 측정 중 끝                                            
+   → REST 중앙값=863, 표준편차=8
+
+[2/2] 신호가 오면 물건 집듯이 편하게 쥐세요. 3초 뒤 신호
+   3
+   2
+   1
+   ▶ 지금 편하게 쥐세요! (컵 드는 힘, 그대로 유지)
+   ● 편한 쥐기 측정 중 (그대로 유지)... 남은 3초 |██████              | 현재값  919      ● 편한 쥐기 측정 중 (그대로 유지)... 남은 2초 |█████████████       | 현재값  835      ● 편한 쥐기 측정 중 (그대로 유지)... 남은 1초 |████████████████████| 현재값  855      ✔ 편한 쥐기 측정 중 (그대로 유지) 끝                                            
+   손에 힘을 빼세요.
+   → 편한 쥐기 중앙값=1001 (순간 최고=1289)
+   ✔ 쥐기가 rest 보다 138 높음 (잡음의 16.5배). 보정 성공.
+
+[calibrate] 완료: rest_baseline=863, ref_contraction=1001
+           닫힘 임계 ≈ rest + 0.7×(ref−rest) = 959, 해제 ≈ 904
+
+[calibrate] 저장: /Users/hwangbaehyeon/intention-link-robot/calibration.json
+[main] AmazingHand 연결됨: /dev/cu.usbmodem5B790178941
+[RobotArm] -> GripClose
+raw=  778 norm=0.62 state=GRIP   [dbg ml=GRIP     (p=0.85)] command=GripClose                       raw=  903 norm=0.25 state=LIGHT  [dbg ml=GRIP     (p=0.92)] command=GripClose                       [RobotArm] -> Release
+raw=  765 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.88)] command=Release                         raw=  978 norm=0.43 state=LIGHT  [dbg ml=GRIP     (p=0.88)] command=Release                         raw=  823 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.92)] command=Release                         raw=  911 norm=0.22 state=LIGHT  [dbg ml=GRIP     (p=0.95)] command=Release                         raw=  986 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.81)] command=Release                         [RobotArm] -> GripClose
+raw= 1168 norm=2.38 state=GRIP   [dbg ml=GRIP     (p=0.87)] command=GripClose                       raw= 1139 norm=2.70 state=GRIP   [dbg ml=GRIP     (p=0.90)] command=GripClose                       raw= 1233 norm=1.64 state=GRIP   [dbg ml=GRIP     (p=0.95)] command=GripClose                       raw=  901 norm=0.62 state=GRIP   [dbg ml=GRIP     (p=0.82)] command=GripClose                       raw= 2860 norm=2.67 state=GRIP   [dbg ml=GRIP     (p=0.97)] command=GripClose                       raw= 1201 norm=2.85 state=GRIP   [dbg ml=GRIP     (p=0.97)] command=GripClose                       raw=  848 norm=0.45 state=GRIP   [dbg ml=GRIP     (p=0.99)] command=GripClose                       [RobotArm] -> Release
+raw=  862 norm=0.03 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  849 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  855 norm=0.02 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  891 norm=0.02 state=REST   [dbg ml=GRIP     (p=0.75)] command=Release                         raw= 1010 norm=0.57 state=LIGHT  [dbg ml=GRIP     (p=0.96)] command=Release                         [RobotArm] -> GripClose
+raw= 1023 norm=0.93 state=GRIP   [dbg ml=GRIP     (p=0.92)] command=GripClose                       raw= 1006 norm=0.80 state=GRIP   [dbg ml=GRIP     (p=0.96)] command=GripClose                       raw= 1072 norm=0.94 state=GRIP   [dbg ml=GRIP     (p=0.77)] command=GripClose                       [RobotArm] -> Release
+raw=  747 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.88)] command=Release                         raw=  853 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.97)] command=Release                         raw=  848 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  853 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  882 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.69)] command=Release                         raw=  939 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.68)] command=Release                         [RobotArm] -> GripClose
+raw=  898 norm=0.65 state=GRIP   [dbg ml=GRIP     (p=0.89)] command=GripClose                       raw=  873 norm=0.35 state=GRIP   [dbg ml=GRIP     (p=0.95)] command=GripClose                       [RobotArm] -> Release
+raw=  833 norm=0.00 state=REST   [dbg ml=GRIP     (p=1.00)] command=Release                         raw=  823 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.80)] command=Release                         raw=  843 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.99)] command=Release                         raw=  870 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.74)] command=Release                         raw=  944 norm=0.06 state=REST   [dbg ml=GRIP     (p=0.92)] command=Release                         raw=  917 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.62)] command=Release                         raw=  889 norm=0.24 state=LIGHT  [dbg ml=GRIP     (p=0.96)] command=Release                         [RobotArm] -> GripClose
+raw=  970 norm=0.68 state=STRONG [dbg ml=GRIP     (p=0.83)] command=GripClose                       raw=  944 norm=0.54 state=GRIP   [dbg ml=GRIP     (p=0.92)] command=GripClose                       raw= 1038 norm=1.50 state=GRIP   [dbg ml=GRIP     (p=0.86)] command=GripClose                       raw=  823 norm=0.10 state=LIGHT  [dbg ml=GRIP     (p=0.93)] command=GripClose                       [RobotArm] -> Release
+raw=  960 norm=0.25 state=LIGHT  [dbg ml=GRIP     (p=0.92)] command=Release                         raw=  874 norm=0.38 state=LIGHT  [dbg ml=GRIP     (p=0.84)] command=Release                         raw=  855 norm=0.08 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  859 norm=0.02 state=REST   [dbg ml=GRIP     (p=0.97)] command=Release                         raw=  858 norm=0.01 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  853 norm=0.01 state=REST   [dbg ml=GRIP     (p=0.97)] command=Release                         raw=  863 norm=0.01 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  862 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  859 norm=0.01 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  859 norm=0.02 state=REST   [dbg ml=GRIP     (p=1.00)] command=Release                         raw=  850 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  843 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  826 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.98)] command=Release                         raw=  783 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.97)] command=Release                         raw=  785 norm=0.00 state=REST   [dbg ml=GRIP     (p=0.99)] command=Release                         
